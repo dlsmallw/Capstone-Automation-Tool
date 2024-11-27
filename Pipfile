@@ -4,6 +4,10 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+panda = "*"
+tk = "*"
+pandas = "*"
+openpyxl = "*"
 
 [dev-packages]
 
