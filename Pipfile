@@ -8,6 +8,8 @@ panda = "*"
 tk = "*"
 pandas = "*"
 openpyxl = "*"
+nicegui = "*"
+pywebview = "*"
 
 [dev-packages]
 
