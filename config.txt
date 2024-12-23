@@ -1,0 +1,5 @@
+[taiga-config]
+us_report_api_url =
+task_report_api_url =
+
+[github-config]
