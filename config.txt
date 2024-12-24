@@ -1,5 +1,10 @@
 [taiga-config]
-us_report_api_url =
-task_report_api_url =
+us_report_api_url = 
+task_report_api_url = 
 
 [github-config]
+gh_username = dlsmallw
+gh_token = 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
+gh_repo_owner = dlsmallw
+gh_repo_name = J-Initiative-Web-Scraper
+

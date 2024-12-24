@@ -38,38 +38,56 @@ class TaigaParsingController:
     def __init__(self):
         self.__load_config()
 
+    def __build_config_section(self, config):
+        config.add_section('taiga-config')
+        self.__update_option_in_config('us_report_api_url', None)
+        self.__update_option_in_config('task_report_api_url', None)
+
     def __load_config(self):
-        config = None
+        config = configparser.RawConfigParser()
 
-        if os.path.exists(self.config_fp):
-            config = configparser.RawConfigParser()
-            config.read(self.config_fp)
-            print(config)
+        if not os.path.exists(self.config_fp):
+            open(self.config_fp, 'w').close()
+            
+        config.read(self.config_fp)
+        self.config_parser = config  # for future use
 
-        if config is not None:
-            self.config_parser = config     # for future use
-
+        if config.has_section('taiga-config'):
             us_report_url = config.get('taiga-config', 'us_report_api_url')
+            task_report_url = config.get('taiga-config', 'task_report_api_url')
+
             if us_report_url != "" or us_report_url is not None:
                 self.api["us_report_url"] = us_report_url
-
-            task_report_url = config.get('taiga-config', 'task_report_api_url')
             if task_report_url != "" or task_report_url is not None:
                 self.api["task_report_url"] = task_report_url
+        else:
+            self.__build_config_section(config)
+
+    def clear_config(self):
+        config = self.config_parser
+        config.set('github-config', 'us_report_api_url', None)
+        config.set('github-config', 'task_report_api_url', None)
+
+        with open(self.config_fp, 'w') as configfile:
+            config.write(configfile)
+            configfile.close()
+
+    def __update_option_in_config(self, option, value):
+        config = self.config_parser
+        config.set('taiga-config', option, value)
+        with open(self.config_fp, 'w') as configfile:
+            config.write(configfile)
+            configfile.close()
 
     def set_us_report_url(self, url):
-        config = self.config_parser
-        
         if url != "" and url is not None:
             self.api['us_report_url'] = url
-            config.set('taiga-config', 'us_report_api_url', url)
+            self.__update_option_in_config('us_report_api_url', url)
 
     def set_task_report_url(self, url):
-        config = self.config_parser
-
         if url != "" and url is not None:
             self.api['task_report_url'] = url
-            config.set('taiga-config', 'task_report_api_url', url)
+            self.__update_option_in_config('task_report_api_url', url)
             
 
     def __file_is_valid(self, filename):
