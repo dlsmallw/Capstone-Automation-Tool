@@ -10,8 +10,8 @@ import pandas as pd
 
 # ui.run(native=True)
 
-# task_report_url = 'https://api.taiga.io/api/v1/tasks/csv?uuid=a368e32c271a4e0b94918762640de1a1'
-# us_report_url = 'https://api.taiga.io/api/v1/userstories/csv?uuid=3182e43aa3b045f484d842d74cff2d86'
+task_report_url = 'https://api.taiga.io/api/v1/tasks/csv?uuid=a368e32c271a4e0b94918762640de1a1'
+us_report_url = 'https://api.taiga.io/api/v1/userstories/csv?uuid=3182e43aa3b045f484d842d74cff2d86'
 
 # tpc = TaigaCSVParser.TaigaParsingController()
 
@@ -25,4 +25,19 @@ import pandas as pd
 
 ghp = GitHubCommitParser.GitHubParsingController()
 
-res = ghp.parse_commit_data()
+ghp.retrieve_and_parse_commit_data()
+
+# contributors = ghp.get_contributors()
+# all_commits = ghp.get_all_commit_data()
+# commits_by_member = ghp.get_commits_by_committer_data()
+
+# print('Contributors:')
+# print(contributors)
+
+# print('All Commit Data:')
+# print(all_commits)
+
+# print('Commits by Committer:')
+# print(commits_by_member)
+
+ghp.write_data('commit_data.xlsx')

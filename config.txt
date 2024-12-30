@@ -1,6 +1,6 @@
 [taiga-config]
-us_report_api_url = 
-task_report_api_url = 
+us_report_api_url = https://api.taiga.io/api/v1/userstories/csv?uuid=3182e43aa3b045f484d842d74cff2d86
+task_report_api_url = https://api.taiga.io/api/v1/tasks/csv?uuid=a368e32c271a4e0b94918762640de1a1
 
 [github-config]
 gh_username = dlsmallw

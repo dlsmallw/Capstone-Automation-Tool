@@ -34,9 +34,14 @@ class TaigaParsingController:
         "raw_task_data": None,
         "formatted_master_data": None
     }
+
+    data_ready = False
     
     def __init__(self):
         self.__load_config()
+
+    ## Config Initialization and Management
+    ##=============================================================================
 
     def __build_config_section(self, config):
         config.add_section('taiga-config')
@@ -57,9 +62,9 @@ class TaigaParsingController:
             task_report_url = config.get('taiga-config', 'task_report_api_url')
 
             if us_report_url != "" or us_report_url is not None:
-                self.api["us_report_url"] = us_report_url
+                self.api['us_report_url'] = us_report_url
             if task_report_url != "" or task_report_url is not None:
-                self.api["task_report_url"] = task_report_url
+                self.api['task_report_url'] = task_report_url
         else:
             self.__build_config_section(config)
 
@@ -78,6 +83,9 @@ class TaigaParsingController:
         with open(self.config_fp, 'w') as configfile:
             config.write(configfile)
             configfile.close()
+
+    ## API/File declaration
+    ##=============================================================================
 
     def set_us_report_url(self, url):
         if url != "" and url is not None:
@@ -102,7 +110,6 @@ class TaigaParsingController:
         if self.__file_is_valid(fp):
             self.paths["us_fp"] = fp
             return True
-    
         return False
 
     def set_task_fp(self, fp):
@@ -111,16 +118,38 @@ class TaigaParsingController:
         if self.__file_is_valid(fp):
             self.paths["task_fp"] = fp
             return True
-        
         return False
     
-    def __format_us_data(self, raw_df):
-        if raw_df is not None:
-                self.data["raw_us_data"] = raw_df[['id', 'ref', 'sprint', 'total-points']]
-                self.__parse_sprints(raw_df)
-                return True
-        
+    ## Retrieval of data
+    ##=============================================================================
+
+    def __us_data_from_api(self):
+        us_report_url = self.api['us_report_url']
+
+        if us_report_url != "" and us_report_url is not None:
+            res = requests.get(us_report_url)._content
+            raw_data = pd.read_csv(io.StringIO(res.decode('utf-8')))
+            return self.__format_us_data(raw_data)
         return False
+
+    def __task_data_from_api(self):
+        task_report_url = self.api["task_report_url"]
+
+        if task_report_url != "" and task_report_url is not None:
+            res = requests.get(task_report_url)._content
+            raw_data = pd.read_csv(io.StringIO(res.decode('utf-8')))
+            return self.__format_task_data(raw_data)
+        return False
+
+    def retrieve_data_by_api(self):
+        task_parse_success = self.__task_data_from_api()
+        us_parse_success = self.__us_data_from_api()
+
+        if task_parse_success and us_parse_success:
+            self.__format_and_centralize_data()
+            self.data_ready = True
+        else:
+            print('Error retrieving and parsing data through api')
 
     def __us_data_from_file(self):
         us_fp = self.paths["us_fp"]
@@ -136,29 +165,7 @@ class TaigaParsingController:
                 raw_data = pd.read_csv(us_fp)
             elif us_fp.split(".")[-1] == "xlsx":
                 raw_data = pd.read_excel(us_fp)
-            
             return self.__format_us_data(raw_data)
-            
-        return False
-
-    def __us_data_from_api(self):
-        us_report_url = self.api["us_report_url"]
-
-        if us_report_url != "" and us_report_url is not None:
-            res = requests.get(us_report_url)._content
-            raw_data = pd.read_csv(io.StringIO(res.decode('utf-8')))
-
-            return self.__format_us_data(raw_data)
-            
-        return False
-    
-    def __format_task_data(self, raw_df):
-        if raw_df is not None:
-            raw_df = raw_df[['id', 'ref', 'subject', 'user_story', 'sprint', 'assigned_to']]
-            raw_df.sort_values(['sprint'], ascending=[True], inplace=True)
-            self.data["raw_task_data"] = raw_df
-            self.__parse_members(raw_df['assigned_to'])
-            return True
         return False
 
     def __task_data_from_file(self):
@@ -175,25 +182,26 @@ class TaigaParsingController:
                 raw_data = pd.read_csv(task_fp)
             elif task_fp.split(".")[-1] == "xlsx":
                 raw_data = pd.read_excel(task_fp)
-            
             return self.__format_task_data(raw_data)
-        
         return False
 
-    def __task_data_from_api(self):
-        task_report_url = self.api["task_report_url"]
+    def retrieve_data_by_file(self):
+        task_parse_success = self.__task_data_from_file()
+        us_parse_success = self.__us_data_from_file()
 
-        if task_report_url != "" and task_report_url is not None:
-            res = requests.get(task_report_url)._content
-            raw_data = pd.read_csv(io.StringIO(res.decode('utf-8')))
+        if task_parse_success and us_parse_success:
+            self.__format_and_centralize_data()
+            self.data_ready = True
+        else:
+            print('Error retrieving and parsing data from files')
 
-            return self.__format_task_data(raw_data)
-            
-        return False
-
-    def __make_hyperlink(self, task_num):
-        base_url = 'https://tree.taiga.io/project/dlsmallw-group-8-asu-capstone-natural-language-processing-for-decolonizing-harm-reduction-literature/task/{}'
-        return '=HYPERLINK("%s", "Task-%s")' % (base_url.format(task_num), task_num)
+    def clear_data(self):
+        self.data["members"] = None
+        self.data["sprints"] = None
+        self.data["raw_us_data"] = None
+        self.data["raw_task_data"] = None
+        self.data["formatted_master_data"] = None
+        self.data_ready = False
 
     def __parse_members(self, dataframe):
         members = []
@@ -204,6 +212,9 @@ class TaigaParsingController:
 
         self.data["members"] = members
 
+    def get_members(self):
+        return self.data["members"]
+
     def __parse_sprints(self, df):
         sprints = []
 
@@ -212,6 +223,32 @@ class TaigaParsingController:
                 sprints.append(row) if row not in sprints else None
 
         self.data["sprints"] = sprints
+
+    def get_sprints(self):
+        return self.data["sprints"]
+    
+    ## Data preparation
+    ##=============================================================================
+    
+    def __format_us_data(self, raw_df):
+        if raw_df is not None:
+                self.data["raw_us_data"] = raw_df[['id', 'ref', 'sprint', 'total-points']]
+                self.__parse_sprints(raw_df)
+                return True
+        return False
+    
+    def __format_task_data(self, raw_df):
+        if raw_df is not None:
+            raw_df = raw_df[['id', 'ref', 'subject', 'user_story', 'sprint', 'assigned_to']]
+            raw_df.sort_values(['sprint'], ascending=[True], inplace=True)
+            self.data["raw_task_data"] = raw_df
+            self.__parse_members(raw_df['assigned_to'])
+            return True
+        return False
+
+    def __make_hyperlink(self, task_num):
+        base_url = 'https://tree.taiga.io/project/dlsmallw-group-8-asu-capstone-natural-language-processing-for-decolonizing-harm-reduction-literature/task/{}'
+        return '=HYPERLINK("%s", "Task-%s")' % (base_url.format(task_num), task_num)
 
     def __format_and_centralize_data(self):
         data_columns = ['subject', 'sprint', 'user_story', 'points', 'task', 'coding']
@@ -239,7 +276,6 @@ class TaigaParsingController:
 
             task = row['ref']
             coding = ""
-
             mem_data = [None] * num_mems
 
             i = 0
@@ -249,28 +285,9 @@ class TaigaParsingController:
 
             data_row = [subject, sprint, user_story, points, task, coding]
             data_row.extend(mem_data)
-
             all_data[index] = data_row
 
         self.data["formatted_master_data"] = pd.DataFrame(all_data, columns=data_columns)
-
-    def retrieve_data_by_api(self):
-        task_parse_success = self.__task_data_from_api()
-        us_parse_success = self.__us_data_from_api()
-
-        if task_parse_success and us_parse_success:
-            self.__format_and_centralize_data()
-        else:
-            print('Error retrieving and parsing data through api')
-
-    def retrieve_data_by_file(self):
-        task_parse_success = self.__task_data_from_file()
-        us_parse_success = self.__us_data_from_file()
-
-        if task_parse_success and us_parse_success:
-            self.__format_and_centralize_data()
-        else:
-            print('Error retrieving and parsing data from files')
 
     def __format_df(self, df):
         for i, row in df.iterrows():
@@ -280,6 +297,9 @@ class TaigaParsingController:
             df.at[i, 'task'] = self.__make_hyperlink(task_num)
 
         return df
+    
+    ## File Writing
+    ##=============================================================================
 
     def __create_new_wb(self, filename):
         if (os.path.exists(filename)):
