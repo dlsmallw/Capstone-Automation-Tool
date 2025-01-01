@@ -40,4 +40,4 @@ ghp.retrieve_and_parse_commit_data()
 # print('Commits by Committer:')
 # print(commits_by_member)
 
-ghp.write_data('commit_data.xlsx')
+ghp.write_to_excel()

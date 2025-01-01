@@ -160,3 +160,9 @@ cython_debug/
 .idea/
 
 *.xlsx
+*.csv
+*.txt
+
+.vscode/
+
+*.sh

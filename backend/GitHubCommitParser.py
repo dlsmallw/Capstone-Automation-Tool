@@ -4,6 +4,8 @@ import pandas as pd
 import requests
 import datetime
 import openpyxl as opyxl
+import pytz
+import re
 
 class GitHubParsingController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
@@ -24,7 +26,8 @@ class GitHubParsingController:
         "contributors": None,
         "branches": None,
         "commit_data": None,
-        "commits_by_committer": None
+        "commits_by_committer": None,
+        "latest_date": None
     }
 
     api_ref_validated = False
@@ -33,6 +36,7 @@ class GitHubParsingController:
 
     def __init__(self):
         self.__load_config()
+        self.__load_from_csv()
 
     ## Config Initialization and Management
     ##=============================================================================
@@ -199,7 +203,6 @@ class GitHubParsingController:
         
     def __get_auth_header(self):
         return {
-            'Time-Zone': 'US/Arizona',
             'Authorization': f'token {self.github_auth["token"]}' 
         }
     
@@ -253,6 +256,7 @@ class GitHubParsingController:
             res = self.__make_gh_api_call(next_url)
             links = res.links
             data = res.json()
+            pattern = r'task[^a-zA-Z\d\s]?\d+'
 
             for commit_entry in data:
                 commit_obj = commit_entry["commit"]
@@ -261,19 +265,32 @@ class GitHubParsingController:
                 committer = self.__get_commit_author(commit_entry)
                 # Commit date and title
                 commit_msg = commit_obj['message']
-                dt = datetime.datetime.strptime(commit_obj['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
-                commit_datetime = f'{dt}'
-                # Used for identifying and filtering commits
-                id = commit_entry['sha']
-                url = commit_entry['html_url']
 
-                commits.append({
-                    "id": id,
-                    "url": url,
-                    "message": commit_msg,
-                    "datetime": commit_datetime,
-                    "committer": committer
-                })
+                if not 'merge' in commit_msg.lower():
+                    match = re.search(pattern, commit_msg, re.IGNORECASE)
+
+                    if match:
+                        task_num = int(re.search(r'\d+', match.group()).group())
+                    else:
+                        task_num = -1
+                
+                    # Takes the commit timezone (UTC) and converts to AZ timezone
+                    utc_dt = datetime.datetime.strptime(commit_obj['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
+                    az_dt = utc_dt.astimezone(pytz.timezone('US/Arizona'))
+                    
+                    # Used for identifying and filtering commits
+                    id = commit_entry['sha']
+                    url = commit_entry['html_url']
+
+                    commits.append({
+                        "id": id,
+                        "task_num": task_num,
+                        "url": url,
+                        "message": commit_msg,
+                        "utc_datetime": f'{utc_dt}',
+                        "az_date": f'{az_dt.strftime('%m/%d/%Y')}',
+                        "committer": committer
+                    })
 
             try:
                 next_url = links.get('next').get('url')
@@ -303,7 +320,11 @@ class GitHubParsingController:
 
         for entry in res:
             contributors.append(entry['login'])
+
         contributors.append('unknown')
+        self.__set_contributors(contributors)
+
+    def __set_contributors(self, contributors):
         self.github_data['contributors'] = contributors
 
     def get_contributors(self):
@@ -312,12 +333,17 @@ class GitHubParsingController:
     def __parse_all_commits(self):
         owner = self.github_repo_info['owner']
         repo = self.github_repo_info['repo']
+        since = self.github_data['latest_date']
 
-        all_data = None
+        all_data = self.get_all_commit_data()
 
         for branch in self.get_branches():
             branch_sha = self.github_data['branches'][branch]
-            url = f'{self.gh_base_url}/repos/{owner}/{repo}/commits?per_page=100&sha={branch_sha}'
+
+            if since:
+                url = f'{self.gh_base_url}/repos/{owner}/{repo}/commits?since={since}&per_page=100&sha={branch_sha}'
+            else:
+                url = f'{self.gh_base_url}/repos/{owner}/{repo}/commits?per_page=100&sha={branch_sha}'
 
             print(f'{branch}: {branch_sha}')
 
@@ -326,11 +352,17 @@ class GitHubParsingController:
             if all_data is None:
                 all_data = branch_commits
             else:
-                all_data = pd.concat([all_data, branch_commits]).drop_duplicates().reset_index(drop=True)
+                all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
 
-        all_data['datetime'] = pd.to_datetime(all_data['datetime'])
-        all_data.sort_values(by='datetime', inplace=True)
+        self.__set_commit_data(all_data)
+    
+    def __set_commit_data(self, all_data):
+        all_data['utc_datetime'] = pd.to_datetime(all_data['utc_datetime'])
+        all_data.sort_values(by='utc_datetime', inplace=True)
+        latest = all_data['utc_datetime'].max().date()
         self.github_data['commit_data'] = all_data
+        self.github_data['latest_date'] = f'{latest.isoformat()}T00:00:00Z'
+        print(self.github_data['latest_date'])
 
     def get_all_commit_data(self):
         return self.github_data['commit_data']
@@ -364,6 +396,7 @@ class GitHubParsingController:
         self.__parse_all_commits()
         if len(self.get_all_commit_data()) <= 0:
             return
+        self.__store_raw_data()
         
         self.__parse_commits_by_committer()
         if len(self.get_commits_by_committer_data()) <= 0:
@@ -381,7 +414,7 @@ class GitHubParsingController:
     ##=============================================================================
             
     def __create_new_wb(self, filename, sheets):
-        if (os.path.exists(filename)):
+        if os.path.exists(filename):
             os.remove(filename)
         
         wb = opyxl.Workbook()
@@ -395,17 +428,60 @@ class GitHubParsingController:
                 del wb[sheet]
 
         wb.save(filename)
+        wb.close()
 
     def __parsed_data_to_spreadsheet(self, df, writer, sheet):
-        df.to_excel(writer, sheet_name=sheet)
+        df.to_excel(writer, sheet_name=sheet, index=False)
 
-    def write_data(self, filename):
-        self.__create_new_wb(filename, self.github_data["contributors"])
+    def write_to_csv(self, filename='./data_out/commit_data.csv'):
+        if 'data_out' in filename:
+            dir_name = 'data_out'
+        else:
+            dir_name = 'raw_data'
 
-        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-            self.__parsed_data_to_spreadsheet(self.get_all_commit_data(), writer, "All_Data")
-            commits_by_committer = self.get_commits_by_committer_data()
+        if not os.path.exists(f'./{dir_name}'):
+            os.makedirs(f'./{dir_name}')
+        self.__write_data(filename, False)
 
-            for contributor in self.get_contributors():
-                contributor_df = commits_by_committer[contributor]
-                self.__parsed_data_to_spreadsheet(contributor_df, writer, contributor)
+    def __load_from_csv(self):
+        filename = './raw_data/raw_commit_data.csv'
+        if os.path.exists(filename):
+            print(' > LOADING COMMIT DATA FROM CSV FILE')
+            all_data = pd.read_csv(filename)
+            contributors = sorted(all_data['committer'].unique())
+            self.__set_commit_data(all_data)
+            self.__set_contributors(contributors)
+            self.__parse_commits_by_committer()
+        else:
+            print(' > NO COMMIT DATA CSV FILE')
+
+    def __store_raw_data(self):
+        self.write_to_csv('./raw_data/raw_commit_data.csv')
+
+    def write_to_excel(self, filename='./data_out/commit_data.xlsx'):
+        if 'data_out' in filename:
+            dir_name = 'data_out'
+        else:
+            dir_name = 'raw_data'
+
+        if not os.path.exists(f'./{dir_name}'):
+            os.makedirs(f'./{dir_name}')
+
+        self.__write_data(filename)
+
+    def __write_data(self, filename, excel=True):
+        if excel:
+            contributors = self.get_contributors()
+            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'az_date', 'url']]
+            commits_by_contributor = self.get_commits_by_committer_data()
+
+            self.__create_new_wb(filename, contributors)
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                self.__parsed_data_to_spreadsheet(all_data, writer, 'All_Data')
+
+                for contributor in contributors:
+                    contributor_df = commits_by_contributor[contributor][['id', 'task_num', 'message', 'az_date', 'url']]
+                    self.__parsed_data_to_spreadsheet(contributor_df, writer, contributor)
+        else:
+            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'utc_datetime', 'az_date', 'url']]
+            all_data.to_csv(filename, index=False)

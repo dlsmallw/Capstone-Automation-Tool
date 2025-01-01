@@ -10,6 +10,7 @@ pandas = "*"
 openpyxl = "*"
 nicegui = "*"
 pywebview = "*"
+pytz = "*"
 
 [dev-packages]
 
