@@ -199,6 +199,7 @@ class GitHubParsingController:
         
     def __get_auth_header(self):
         return {
+            'Time-Zone': 'US/Arizona',
             'Authorization': f'token {self.github_auth["token"]}' 
         }
     
