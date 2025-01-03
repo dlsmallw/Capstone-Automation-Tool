@@ -4,7 +4,6 @@ import io
 import pandas as pd
 import openpyxl as opyxl
 
-import configparser
 import requests
 
 import tkinter as tk
@@ -14,89 +13,40 @@ root = tk.Tk()
 root.withdraw()
 
 class TaigaParsingController:
-    config_fp = os.path.join(os.getcwd(), 'config.txt')
-    config_parser = None
-        
-    api = {
-        "us_report_url": None,
-        "task_report_url": None
-    }
+    us_report_url = None
+    task_report_url = None
 
-    paths = {
-        "us_fp": None,
-        "task_fp": None
-    }
+    us_fp = None
+    task_fp = None
 
-    data = {
-        "members": None,
-        "sprints": None,
-        "raw_us_data": None,
-        "raw_task_data": None,
-        "formatted_master_data": None
-    }
+    member_list = None
+    sprint_list = None
+    raw_us_df = None
+    raw_task_df = None
+    formatted_master_df = None
 
     data_ready = False
     
-    def __init__(self):
-        self.__load_config()
-
-    ## Config Initialization and Management
-    ##=============================================================================
-
-    def __build_config_section(self, config):
-        config.add_section('taiga-config')
-        self.__update_option_in_config('us_report_api_url', None)
-        self.__update_option_in_config('task_report_api_url', None)
-
-    def __load_config(self):
-        config = configparser.RawConfigParser()
-
-        if not os.path.exists(self.config_fp):
-            open(self.config_fp, 'w').close()
-            
-        config.read(self.config_fp)
-        self.config_parser = config  # for future use
-
-        if config.has_section('taiga-config'):
-            us_report_url = config.get('taiga-config', 'us_report_api_url')
-            task_report_url = config.get('taiga-config', 'task_report_api_url')
-
-            if us_report_url != "" or us_report_url is not None:
-                self.api['us_report_url'] = us_report_url
-            if task_report_url != "" or task_report_url is not None:
-                self.api['task_report_url'] = task_report_url
-        else:
-            self.__build_config_section(config)
-
-    def clear_config(self):
-        config = self.config_parser
-        config.set('github-config', 'us_report_api_url', None)
-        config.set('github-config', 'task_report_api_url', None)
-
-        with open(self.config_fp, 'w') as configfile:
-            config.write(configfile)
-            configfile.close()
-
-    def __update_option_in_config(self, option, value):
-        config = self.config_parser
-        config.set('taiga-config', option, value)
-        with open(self.config_fp, 'w') as configfile:
-            config.write(configfile)
-            configfile.close()
+    def __init__(self, us_url, task_url):
+        self.set_us_report_url(us_url)
+        self.set_task_report_url(task_url)
 
     ## API/File declaration
     ##=============================================================================
 
     def set_us_report_url(self, url):
         if url != "" and url is not None:
-            self.api['us_report_url'] = url
-            self.__update_option_in_config('us_report_api_url', url)
+            self.us_report_url = url
+
+    def get_us_report_url(self):
+        return self.us_report_url
 
     def set_task_report_url(self, url):
         if url != "" and url is not None:
-            self.api['task_report_url'] = url
-            self.__update_option_in_config('task_report_api_url', url)
-            
+            self.task_report_url = url
+
+    def get_task_report_url(self):
+        return self.task_report_url
 
     def __file_is_valid(self, filename):
         if filename != "" and filename is not None:
@@ -104,39 +54,41 @@ class TaigaParsingController:
         else:
             return False
 
-    def set_us_fp(self):
-        fp = filedialog.askopenfilename()
-
+    def set_us_fp(self, fp):
         if self.__file_is_valid(fp):
-            self.paths["us_fp"] = fp
+            self.us_fp = fp
             return True
         return False
+    
+    def get_us_fp(self):
+        return self.us_fp
 
     def set_task_fp(self, fp):
-        fp = filedialog.askopenfilename()
-
         if self.__file_is_valid(fp):
-            self.paths["task_fp"] = fp
+            self.task_fp = fp
             return True
         return False
+    
+    def get_task_fp(self):
+        return self.task_fp
     
     ## Retrieval of data
     ##=============================================================================
 
     def __us_data_from_api(self):
-        us_report_url = self.api['us_report_url']
+        url = self.us_report_url
 
-        if us_report_url != "" and us_report_url is not None:
-            res = requests.get(us_report_url)._content
+        if url != "" and url is not None:
+            res = requests.get(url)._content
             raw_data = pd.read_csv(io.StringIO(res.decode('utf-8')))
             return self.__format_us_data(raw_data)
         return False
 
     def __task_data_from_api(self):
-        task_report_url = self.api["task_report_url"]
+        url = self.task_report_url
 
-        if task_report_url != "" and task_report_url is not None:
-            res = requests.get(task_report_url)._content
+        if url != "" and url is not None:
+            res = requests.get(url)._content
             raw_data = pd.read_csv(io.StringIO(res.decode('utf-8')))
             return self.__format_task_data(raw_data)
         return False
@@ -152,7 +104,7 @@ class TaigaParsingController:
             print('Error retrieving and parsing data through api')
 
     def __us_data_from_file(self):
-        us_fp = self.paths["us_fp"]
+        us_fp = self.us_fp
         us_url_set = self.__file_is_valid(us_fp)
 
         if not us_url_set:
@@ -169,7 +121,7 @@ class TaigaParsingController:
         return False
 
     def __task_data_from_file(self):
-        task_fp = self.paths["task_fp"]
+        task_fp = self.task_fp
         task_url_set = self.__file_is_valid(task_fp)
 
         if not task_url_set:
@@ -196,12 +148,11 @@ class TaigaParsingController:
             print('Error retrieving and parsing data from files')
 
     def clear_data(self):
-        self.data["members"] = None
-        self.data["sprints"] = None
-        self.data["raw_us_data"] = None
-        self.data["raw_task_data"] = None
-        self.data["formatted_master_data"] = None
-        self.data_ready = False
+        self.member_list = None
+        self.sprint_list = None
+        self.raw_us_df = None
+        self.raw_task_df = None
+        self.formatted_master_df = None
 
     def __parse_members(self, dataframe):
         members = []
@@ -210,10 +161,10 @@ class TaigaParsingController:
             if pd.notnull(row):
                 members.append(row) if row not in members else None
 
-        self.data["members"] = members
+        self.member_list = members
 
     def get_members(self):
-        return self.data["members"]
+        return self.member_list
 
     def __parse_sprints(self, df):
         sprints = []
@@ -222,17 +173,17 @@ class TaigaParsingController:
             if pd.notnull(row):
                 sprints.append(row) if row not in sprints else None
 
-        self.data["sprints"] = sprints
+        self.sprint_list = sprints
 
     def get_sprints(self):
-        return self.data["sprints"]
+        return self.sprint_list
     
     ## Data preparation
     ##=============================================================================
     
     def __format_us_data(self, raw_df):
         if raw_df is not None:
-                self.data["raw_us_data"] = raw_df[['id', 'ref', 'sprint', 'total-points']]
+                self.raw_us_df = raw_df[['id', 'ref', 'sprint', 'total-points']]
                 self.__parse_sprints(raw_df)
                 return True
         return False
@@ -241,7 +192,7 @@ class TaigaParsingController:
         if raw_df is not None:
             raw_df = raw_df[['id', 'ref', 'subject', 'user_story', 'sprint', 'assigned_to']]
             raw_df.sort_values(['sprint'], ascending=[True], inplace=True)
-            self.data["raw_task_data"] = raw_df
+            self.raw_task_df = raw_df
             self.__parse_members(raw_df['assigned_to'])
             return True
         return False
@@ -253,9 +204,9 @@ class TaigaParsingController:
     def __format_and_centralize_data(self):
         data_columns = ['subject', 'sprint', 'user_story', 'points', 'task', 'coding']
 
-        members = self.data["members"]
-        us_df = self.data["raw_us_data"]
-        task_df = self.data["raw_task_data"]
+        members = self.get_members()
+        us_df = self.raw_us_df
+        task_df = self.raw_task_df
 
         num_mems = len(members)
         data_columns.extend(members)
@@ -287,7 +238,7 @@ class TaigaParsingController:
             data_row.extend(mem_data)
             all_data[index] = data_row
 
-        self.data["formatted_master_data"] = pd.DataFrame(all_data, columns=data_columns)
+        self.formatted_master_df = pd.DataFrame(all_data, columns=data_columns)
 
     def __format_df(self, df):
         for i, row in df.iterrows():
@@ -308,11 +259,11 @@ class TaigaParsingController:
         wb = opyxl.Workbook()
         wb.create_sheet("All_Data")
 
-        for sprint in self.data["sprints"]:
+        for sprint in self.sprint_list:
             wb.create_sheet(sprint)
 
         for sheet in wb.sheetnames:
-            if sheet not in self.data["sprints"] and sheet != "All_Data":
+            if sheet not in self.sprint_list and sheet != "All_Data":
                 del wb[sheet]
 
         wb.save(filename)
@@ -321,18 +272,18 @@ class TaigaParsingController:
         df.to_excel(writer, sheet_name=sheet)
 
     def write_data(self, filename):
-        self.__create_new_wb(filename, self.data["sprints"])
+        self.__create_new_wb(filename, self.sprint_list)
 
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
             self.__parsed_data_to_spreadsheet(
-                self.__format_df(self.data["formatted_master_data"].sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
+                self.__format_df(self.formatted_master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
                 writer, "All_Data")
             
-            for sprint in self.data["sprints"]:
-                sprint_df = self.data["formatted_master_data"].loc[self.data["formatted_master_data"]['sprint'] == sprint]
+            for sprint in self.sprint_list:
+                sprint_df = self.formatted_master_df.loc[self.formatted_master_df['sprint'] == sprint]
                 self.__parsed_data_to_spreadsheet(
                     self.__format_df(sprint_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
                     writer, sprint)
                 
     def get_master_df(self):
-        return self.data["formatted_master_data"]
+        return self.formatted_master_df

@@ -1,4 +1,4 @@
-import configparser
+
 import os
 import pandas as pd
 import requests
@@ -12,85 +12,25 @@ class GitHubParsingController:
     config_parser = None
     gh_base_url = "https://api.github.com"
 
-    github_auth = {
-        "username": None,
-        "token": None
-    }
+    gh_username = None
+    gh_token = None
+    gh_repo_owner = None
+    gh_repo_name = None
 
-    github_repo_info = {
-        "owner": None,
-        "repo": None
-    }
-
-    github_data = {
-        "contributors": None,
-        "branches": None,
-        "commit_data": None,
-        "commits_by_committer": None,
-        "latest_date": None
-    }
+    contributor_list = None
+    branch_list = None
+    raw_commit_df = None
+    commits_by_committer_df = None
+    latest_commit_date = None
 
     api_ref_validated = False
     auth_verified = False
     data_ready = False
 
-    def __init__(self):
-        self.__load_config()
+    def __init__(self, username, token, owner, repo):
+        self.set_gh_auth(username, token)
+        self.set_repo_details(owner, repo)
         self.__load_from_csv()
-
-    ## Config Initialization and Management
-    ##=============================================================================
-
-    def __build_config_section(self, config):
-        config.add_section('github-config')
-        self.__update_option_in_config('gh_username', None)
-        self.__update_option_in_config('gh_token', None)
-        self.__update_option_in_config('gh_repo_owner', None)
-        self.__update_option_in_config('gh_repo_name', None)
-
-    def __load_config(self):
-        config = configparser.RawConfigParser()
-
-        if not os.path.exists(self.config_fp):
-            open(self.config_fp, 'w').close()
-            
-        config.read(self.config_fp)
-        self.config_parser = config  # for future use
-
-        if config.has_section('github-config'):
-            gh_username = config.get('github-config', 'gh_username')
-            gh_token = config.get('github-config', 'gh_token')
-            repo_owner = config.get('github-config', 'gh_repo_owner')
-            repo_name = config.get('github-config', 'gh_repo_name')
-
-            if self.__validate_username(gh_username):
-                self.github_auth['username'] = gh_username
-            if self.__validate_token(gh_token):
-                self.github_auth['token'] = gh_token
-            if self.__validate_username(gh_username):
-                self.github_repo_info['owner'] = repo_owner
-            if repo_name != "" and repo_name is not None:
-                self.github_repo_info['repo'] = repo_name
-        else:
-            self.__build_config_section(config)
-
-    def clear_config(self):
-        config = self.config_parser
-        config.set('github-config', 'gh_username', None)
-        config.set('github-config', 'gh_token', None)
-        config.set('github-config', 'gh_repo_owner', None)
-        config.set('github-config', 'gh_repo_name', None)
-
-        with open(self.config_fp, 'w') as configfile:
-            config.write(configfile)
-            configfile.close()
-
-    def __update_option_in_config(self, option, value):
-        config = self.config_parser
-        config.set('github-config', option, value)
-        with open(self.config_fp, 'w') as configfile:
-            config.write(configfile)
-            configfile.close()
 
     ## Auth Management
     ##=============================================================================
@@ -101,7 +41,7 @@ class GitHubParsingController:
     def __validate_token(self, token):
         return token != "" and token is not None
 
-    def validate_auth(self, username, token):
+    def __validate_auth(self, username, token):
         if self.__validate_username(username) and self.__validate_token(token):
             res = self.__make_gh_api_call(f'{self.gh_base_url}/user')
             if res.status_code >= 200 and res.status_code < 300:
@@ -114,44 +54,50 @@ class GitHubParsingController:
 
     def __set_gh_username(self, username):
         if self.__validate_username(username):
-            self.github_auth['username'] = username
-            self.__update_option_in_config('gh_username', username)
+            self.gh_username = username
             return True
-        
         return False
+    
+    def get_username(self):
+        return self.gh_username
 
-    def set_gh_token(self, token):
+    def __set_gh_token(self, token):
         if self.__validate_token(token):
-            username = self.github_auth['username']
+            self.gh_token = token
+            return True
+        return False
+    
+    def get_token(self):
+        return self.gh_token
 
-            if self.validate_auth(username, token):
-                self.github_auth['token'] = token
-                self.__update_option_in_config('gh_token', token)
-                return True
-            return False
-
-    def set_gh_auth(self, username, token):
-        auth_set_success = True
-
-        if not self.__set_gh_username(username):
-            print('Invalid username provided')
-            auth_set_success = False
-
-        if not self.set_gh_token(token):
-            print('Invalid token provided')
-            auth_set_success = False
-
-        if auth_set_success:
-            return self.validate_auth(username, token)
+    def set_gh_auth(self, username=None, token=None):
+        if username is not None:
+            username_set = self.__set_gh_username(username)
+            if not username_set:
+                print('Invalid username provided')
         else:
-            return auth_set_success
+            if self.gh_username is not None:
+                username_set = True
+
+        if token is not None:
+            token_set = self.__set_gh_token(token)
+            if not token_set:
+                print('Invalid token provided')
+        else:
+            if self.gh_token is not None:
+                token_set = True
+
+        if username_set and token_set:
+            return self.__validate_auth(username, token)
+        else:
+            return False
         
     ## Target Repository Management
     ##=============================================================================
         
-    def validate_repo_exists(self):
-        owner = self.github_repo_info['owner']
-        repo = self.github_repo_info['repo']
+    def __validate_repo_exists(self):
+        owner = self.gh_repo_owner
+        repo = self.gh_repo_name
 
         url = f'{self.gh_base_url}/repos/{owner}/{repo}'
         header = self.__get_auth_header()
@@ -168,19 +114,21 @@ class GitHubParsingController:
 
     def __set_repo_owner_username(self, owner):
         if self.__validate_username(owner):
-            self.github_repo_info['owner'] = owner
-            self.__update_option_in_config('gh_repo_owner', owner)
+            self.gh_repo_owner = owner
             return True
-        
         return False
+    
+    def get_repo_owner(self):
+        return self.gh_repo_owner
     
     def __set_repo_name(self, repo):
         if repo != "" and repo is not None:
-            self.github_repo_info['repo'] = repo
-            self.__update_option_in_config('gh_repo_name', repo)
+            self.gh_repo_name = repo
             return True
-        
         return False
+    
+    def get_repo_name(self):
+        return self.gh_repo_name
     
     def set_repo_details(self, owner, repo):
         repo_details_success = True
@@ -194,7 +142,7 @@ class GitHubParsingController:
             repo_details_success = False
 
         if repo_details_success:
-            return self.validate_repo_exists()
+            return self.__validate_repo_exists()
         else:
             return repo_details_success
         
@@ -203,7 +151,7 @@ class GitHubParsingController:
         
     def __get_auth_header(self):
         return {
-            'Authorization': f'token {self.github_auth["token"]}' 
+            'Authorization': f'token {self.gh_token}' 
         }
     
     def __make_gh_api_call(self, url):
@@ -215,13 +163,13 @@ class GitHubParsingController:
         author_email = commit["commit"]["author"]["email"]
 
         if author_name is not None and author_name != 'unknown':
-            if author_name in self.github_data['contributors']:
+            if author_name in self.contributor_list:
                 return author_name
         else:
             if author_email is not None and author_email != 'unknown':
                 suspected_name = author_email[0:author_email.index('@')]
 
-                if suspected_name in self.github_data['contributors']:
+                if suspected_name in self.contributor_list:
                     return suspected_name
         return 'unknown'
     
@@ -301,17 +249,17 @@ class GitHubParsingController:
         return raw_commits_data
     
     def __parse_repo_branches(self):
-        owner = self.github_repo_info['owner']
-        repo = self.github_repo_info['repo']
+        owner = self.gh_repo_owner
+        repo = self.gh_repo_name
         url = f'{self.gh_base_url}/repos/{owner}/{repo}/branches?per_page=100'
-        self.github_data['branches'] = self.__get_paginated_branch_data(url)
+        self.branch_list = self.__get_paginated_branch_data(url)
 
     def get_branches(self):
-        return list(self.github_data['branches'].keys())
+        return list(self.branch_list.keys())
     
     def __parse_repo_contributors(self):
-        owner = self.github_repo_info['owner']
-        repo = self.github_repo_info['repo']
+        owner = self.gh_repo_owner
+        repo = self.gh_repo_name
         url = f'{self.gh_base_url}/repos/{owner}/{repo}/contributors'
 
         res = self.__make_gh_api_call(url).json()
@@ -325,20 +273,20 @@ class GitHubParsingController:
         self.__set_contributors(contributors)
 
     def __set_contributors(self, contributors):
-        self.github_data['contributors'] = contributors
+        self.contributor_list = contributors
 
     def get_contributors(self):
-        return self.github_data['contributors']
+        return self.contributor_list
     
     def __parse_all_commits(self):
-        owner = self.github_repo_info['owner']
-        repo = self.github_repo_info['repo']
-        since = self.github_data['latest_date']
+        owner = self.gh_repo_owner
+        repo = self.gh_repo_name
+        since = self.latest_commit_date
 
         all_data = self.get_all_commit_data()
 
         for branch in self.get_branches():
-            branch_sha = self.github_data['branches'][branch]
+            branch_sha = self.branch_list[branch]
 
             if since:
                 url = f'{self.gh_base_url}/repos/{owner}/{repo}/commits?since={since}&per_page=100&sha={branch_sha}'
@@ -360,12 +308,12 @@ class GitHubParsingController:
         all_data['utc_datetime'] = pd.to_datetime(all_data['utc_datetime'])
         all_data.sort_values(by='utc_datetime', inplace=True)
         latest = all_data['utc_datetime'].max().date()
-        self.github_data['commit_data'] = all_data
-        self.github_data['latest_date'] = f'{latest.isoformat()}T00:00:00Z'
-        print(self.github_data['latest_date'])
+        self.raw_commit_df = all_data
+        self.latest_commit_date = f'{latest.isoformat()}T00:00:00Z'
+        print(self.latest_commit_date)
 
     def get_all_commit_data(self):
-        return self.github_data['commit_data']
+        return self.raw_commit_df
     
     def __parse_commits_by_committer(self):
         commit_data = self.get_all_commit_data()
@@ -376,10 +324,10 @@ class GitHubParsingController:
             commiter_df = commit_data.loc[commit_data['committer'] == contributor]
             commits_by_committer[contributor] = commiter_df
 
-        self.github_data['commits_by_committer'] = commits_by_committer
+        self.commits_by_committer_df = commits_by_committer
 
     def get_commits_by_committer_data(self):
-        return self.github_data['commits_by_committer']
+        return self.commits_by_committer_df
     
     ## Handling of data
     ##=============================================================================
@@ -405,9 +353,9 @@ class GitHubParsingController:
         self.data_ready = True
 
     def clear_data(self):
-        self.github_data['contributors'] = None
-        self.github_data['commit_data'] = None
-        self.github_data['commits_by_committer'] = None
+        self.contributor_list = None
+        self.raw_commit_df = None
+        self.commits_by_committer_df = None
         self.data_ready = False
 
     ## File Writing
@@ -424,7 +372,7 @@ class GitHubParsingController:
             wb.create_sheet(contributor)
 
         for sheet in wb.sheetnames:
-            if sheet not in self.github_data["contributors"] and sheet != "All_Data":
+            if sheet not in self.contributor_list and sheet != "All_Data":
                 del wb[sheet]
 
         wb.save(filename)
