@@ -1,15 +1,14 @@
 import configparser
 import os
 
-from GitHubCommitParser import GitHubParsingController
-from TaigaCSVParser import TaigaParsingController
+from backend import GitHubCommitParser, TaigaCSVParser
 
 class AppController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
     config_parser = None
 
-    tp : TaigaParsingController = None
-    ghp : GitHubParsingController = None
+    tp = None
+    ghp = None
 
     gh_auth_verified = False
     gh_repo_verified = False
@@ -29,7 +28,7 @@ class AppController:
             repo_owner = config.get('github-config', 'gh_repo_owner')
             repo_name = config.get('github-config', 'gh_repo_name')
 
-            ghp = GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
+            self.ghp = GitHubCommitParser.GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
         else:
             self.__build_gh_section()
 
@@ -40,7 +39,7 @@ class AppController:
             us_report_url = config.get('taiga-config', 'us_report_api_url')
             task_report_url = config.get('taiga-config', 'task_report_api_url')
 
-            tp = TaigaParsingController(us_report_url, task_report_url)
+            self.tp = TaigaCSVParser.TaigaParsingController(us_report_url, task_report_url)
         else:
             self.__build_config_section(config)
 
@@ -152,3 +151,12 @@ class AppController:
 
     def taiga_retrieve_from_files(self):
         self.tp.retrieve_data_by_file()
+    
+    ## Dataframe retrieval
+    ##=============================================================================
+
+    def get_taiga_master_df(self):
+        return self.tp.get_master_df()
+    
+    def get_gh_master_df(self):
+        return self.ghp.get_all_commit_data()
