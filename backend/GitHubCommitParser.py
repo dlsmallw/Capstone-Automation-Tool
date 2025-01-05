@@ -35,14 +35,14 @@ class GitHubParsingController:
     ## Auth Management
     ##=============================================================================
     
-    def __validate_username(self, username):
+    def validate_username(self, username):
         return username != "" and username is not None
     
-    def __validate_token(self, token):
+    def validate_token(self, token):
         return token != "" and token is not None
 
-    def __validate_auth(self, username, token):
-        if self.__validate_username(username) and self.__validate_token(token):
+    def validate_auth(self, username, token):
+        if self.validate_username(username) and self.validate_token(token):
             res = self.__make_gh_api_call(f'{self.gh_base_url}/user')
             if res.status_code >= 200 and res.status_code < 300:
                 self.auth_verified = True
@@ -52,8 +52,8 @@ class GitHubParsingController:
     def auth_validated(self):
         return self.auth_verified
 
-    def __set_gh_username(self, username):
-        if self.__validate_username(username):
+    def set_gh_username(self, username):
+        if self.validate_username(username):
             self.gh_username = username
             return True
         return False
@@ -61,8 +61,8 @@ class GitHubParsingController:
     def get_username(self):
         return self.gh_username
 
-    def __set_gh_token(self, token):
-        if self.__validate_token(token):
+    def set_gh_token(self, token):
+        if self.validate_token(token):
             self.gh_token = token
             return True
         return False
@@ -72,7 +72,7 @@ class GitHubParsingController:
 
     def set_gh_auth(self, username=None, token=None):
         if username is not None:
-            username_set = self.__set_gh_username(username)
+            username_set = self.set_gh_username(username)
             if not username_set:
                 print('Invalid username provided')
         else:
@@ -80,7 +80,7 @@ class GitHubParsingController:
                 username_set = True
 
         if token is not None:
-            token_set = self.__set_gh_token(token)
+            token_set = self.set_gh_token(token)
             if not token_set:
                 print('Invalid token provided')
         else:
@@ -88,14 +88,14 @@ class GitHubParsingController:
                 token_set = True
 
         if username_set and token_set:
-            return self.__validate_auth(username, token)
+            return self.validate_auth(username, token)
         else:
             return False
         
     ## Target Repository Management
     ##=============================================================================
         
-    def __validate_repo_exists(self):
+    def validate_repo_exists(self):
         owner = self.gh_repo_owner
         repo = self.gh_repo_name
 
@@ -112,8 +112,8 @@ class GitHubParsingController:
     def repo_validated(self):
         return self.api_ref_validated
 
-    def __set_repo_owner_username(self, owner):
-        if self.__validate_username(owner):
+    def set_repo_owner_username(self, owner):
+        if self.validate_username(owner):
             self.gh_repo_owner = owner
             return True
         return False
@@ -121,7 +121,7 @@ class GitHubParsingController:
     def get_repo_owner(self):
         return self.gh_repo_owner
     
-    def __set_repo_name(self, repo):
+    def set_repo_name(self, repo):
         if repo != "" and repo is not None:
             self.gh_repo_name = repo
             return True
@@ -133,16 +133,16 @@ class GitHubParsingController:
     def set_repo_details(self, owner, repo):
         repo_details_success = True
 
-        if not self.__set_repo_owner_username(owner):
+        if not self.set_repo_owner_username(owner):
             print('Invalid repo owner username')
             repo_details_success = False
 
-        if not self.__set_repo_name(repo):
+        if not self.set_repo_name(repo):
             print('Invalid repo name')
             repo_details_success = False
 
         if repo_details_success:
-            return self.__validate_repo_exists()
+            return self.validate_repo_exists()
         else:
             return repo_details_success
         

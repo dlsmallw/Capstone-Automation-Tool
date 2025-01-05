@@ -1,9 +1,10 @@
 import configparser
 import os
 
+
 from backend import GitHubCommitParser, TaigaCSVParser
 
-class AppController:
+class DataController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
     config_parser = None
 
@@ -97,33 +98,70 @@ class AppController:
     ##=============================================================================
 
     def set_gh_auth(self, username, token):
-        self.ghp.set_gh_auth(username, token)
-        self.gh_auth_verified = self.ghp.auth_validated()
+        if self.ghp.set_gh_auth(username, token):
+            self.gh_auth_verified = self.ghp.auth_validated()
+            self.__update_gh_config_opt('gh_username', username)
+            self.__update_gh_config_opt('gh_token', token)
+    
+    def set_gh_username(self, username):
+        success = self.ghp.set_gh_username(username)
+        if success:
+            self.__update_gh_config_opt('gh_username', username)
+            token = self.ghp.get_token()
+            if self.ghp.validate_token(token):
+                self.gh_auth_verified = self.ghp.set_gh_auth(username, token)
+        return success
 
     def get_gh_username(self):
         return self.ghp.get_username()
+    
+    def set_gh_token(self, token):
+        success = self.ghp.set_gh_token(token)
+        if success:
+            self.__update_gh_config_opt('gh_token', token)
+            username = self.ghp.get_username()
+            if self.ghp.validate_username(username):
+                self.gh_auth_verified = self.ghp.set_gh_auth(username, token)
+        return success
     
     def get_gh_token(self):
         return self.ghp.get_token()
     
     def set_gh_repo_details(self, owner, repo):
-        self.ghp.set_repo_details(owner, repo)
-        self.gh_repo_verified = self.ghp.repo_validated()
+        if self.ghp.set_repo_details(owner, repo):
+            self.gh_repo_verified = self.ghp.repo_validated()
+            self.__update_gh_config_opt('gh_repo_owner', owner)
+            self.__update_gh_config_opt('gh_repo_name', repo)
+
+    def set_gh_owner(self, owner):
+        success = self.ghp.set_repo_owner_username(owner)
+        if success:
+            self.__update_gh_config_opt('gh_repo_owner', owner)
+            self.gh_repo_verified = self.ghp.validate_repo_exists()
 
     def get_repo_owner(self):
         return self.ghp.get_repo_owner()
     
+    def set_gh_repo(self, repo):
+        success = self.ghp.set_repo_name(repo)
+        if success:
+            self.__update_gh_config_opt('gh_repo_name', repo)
+            self.gh_repo_verified = self.ghp.validate_repo_exists()
+
+
     def get_repo_name(self):
         return self.ghp.get_repo_name()
     
     def set_taiga_us_api_url(self, url):
         self.tp.set_us_report_url(url)
+        self.__update_taiga_config_opt('us_report_api_url', url)
 
     def get_taiga_us_api_url(self):
         return self.tp.get_us_report_url()
 
     def set_taiga_task_url(self, url):
         self.tp.set_task_report_url(url)
+        self.__update_taiga_config_opt('task_report_api_url', url)
 
     def get_taiga_task_api_url(self):
         return self.tp.get_task_report_url()

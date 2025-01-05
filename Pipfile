@@ -8,9 +8,9 @@ panda = "*"
 tk = "*"
 pandas = "*"
 openpyxl = "*"
-nicegui = "*"
 pywebview = "*"
 pytz = "*"
+tksheet = "*"
 
 [dev-packages]
 
