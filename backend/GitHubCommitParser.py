@@ -312,7 +312,7 @@ class GitHubParsingController:
         self.latest_commit_date = f'{latest.isoformat()}T00:00:00Z'
         print(self.latest_commit_date)
 
-    def get_all_commit_data(self):
+    def get_all_commit_data(self) -> pd.DataFrame:
         return self.raw_commit_df
     
     def __parse_commits_by_committer(self):

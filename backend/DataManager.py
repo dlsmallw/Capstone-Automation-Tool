@@ -1,7 +1,7 @@
 import configparser
 import os
 
-
+import pandas as pd
 from backend import GitHubCommitParser, TaigaCSVParser
 
 class DataController:
@@ -196,5 +196,5 @@ class DataController:
     def get_taiga_master_df(self):
         return self.tp.get_master_df()
     
-    def get_gh_master_df(self):
+    def get_gh_master_df(self) -> pd.DataFrame:
         return self.ghp.get_all_commit_data()
