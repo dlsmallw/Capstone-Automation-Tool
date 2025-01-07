@@ -32,18 +32,11 @@ def main():
     root.minsize(1000, 800)
     tabControl = ttk.Notebook(root)
 
-    frame = tk.Frame(root)
-    frame.grid_columnconfigure(0, weight = 1)
-    frame.grid_rowconfigure(0, weight = 1)
-    sheet = tks.Sheet(frame, header=list(df.columns), data=df.values.tolist(), height=800, width=1000)
-    sheet.enable_bindings('all')
-    sheet.grid(row=0, column=0, sticky='nsew')
-
     home_tab = HomeFrame.HomeFrame(tabControl)
     taiga_tab = TaigaFrame.TaigaFrame(tabControl, dc)
     gh_tab = GitHubFrame.GitHubFrame(tabControl, dc)
 
-    tabControl.add(frame, text='Home')
+    tabControl.add(home_tab, text='Home')
     tabControl.add(taiga_tab, text='Taiga')
     tabControl.add(gh_tab, text='GitHub')
     tabControl.pack(expand = 1, fill ="both") 

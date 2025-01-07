@@ -21,6 +21,7 @@ class TaigaParsingController:
 
     member_list = None
     sprint_list = None
+    us_list = None
     raw_us_df = None
     raw_task_df = None
     formatted_master_df = None
@@ -119,6 +120,18 @@ class TaigaParsingController:
                 raw_data = pd.read_excel(us_fp)
             return self.__format_us_data(raw_data)
         return False
+    
+    def __parse_user_stories(self, df):
+        user_stories = []
+
+        for row in df:
+            if pd.notnull(row):
+                user_stories.append(row) if row not in user_stories else None
+
+        self.us_list = user_stories
+    
+    def get_user_stories(self):
+        return self.us_list
 
     def __task_data_from_file(self):
         task_fp = self.task_fp
@@ -178,13 +191,16 @@ class TaigaParsingController:
     def get_sprints(self):
         return self.sprint_list
     
+    
+    
     ## Data preparation
     ##=============================================================================
     
     def __format_us_data(self, raw_df):
         if raw_df is not None:
                 self.raw_us_df = raw_df[['id', 'ref', 'sprint', 'total-points']]
-                self.__parse_sprints(raw_df)
+                self.__parse_sprints(raw_df['sprint'])
+                self.__parse_user_stories(raw_df['ref'])
                 return True
         return False
     
@@ -202,52 +218,64 @@ class TaigaParsingController:
         return '=HYPERLINK("%s", "Task-%s")' % (base_url.format(task_num), task_num)
 
     def __format_and_centralize_data(self):
-        data_columns = ['subject', 'sprint', 'user_story', 'points', 'task', 'coding']
+        data_columns = ['sprint', 'user_story', 'points', 'task', 'assigned_to', 'coding', 'subject']
 
-        members = self.get_members()
         us_df = self.raw_us_df
         task_df = self.raw_task_df
-
-        num_mems = len(members)
-        data_columns.extend(members)
+        print(task_df.columns)
 
         all_data = [0] * len(task_df)
 
         for index, row in task_df.iterrows():
-            assigned = row['assigned_to']
-
-            subject = row['subject']
-            sprint = row['sprint']
-
             us_num = row['user_story']
             us_row = us_df.loc[us_df['ref'] == us_num]
 
-            user_story = row['user_story']
-            points = us_row['total-points'].values[0] if pd.notnull(us_num) else 0
-
-            task = row['ref']
+            sprint = row['sprint']
+            user_story = int(us_num) if pd.notnull(us_num) else 'Storyless'
+            points = int(us_row['total-points'].values[0] if pd.notnull(us_num) else 0)
+            task = int(row['ref'])
+            assigned = row['assigned_to'] if pd.notnull(row['assigned_to']) else 'Unassigned'
             coding = ""
-            mem_data = [None] * num_mems
+            subject = row['subject']
+            
+            data_row = [sprint, user_story, points, task, assigned, coding, subject]
+            all_data[index] = data_row
 
+        self.formatted_master_df = pd.DataFrame(all_data, columns=data_columns)
+
+    def __format_df_for_excel(self, df):
+        members = self.get_members()
+        num_mems = len(members)
+
+        data_columns = ['sprint', 'user_story', 'points', 'task', 'coding']
+        data_columns.extend(members)
+
+        data = [0] * len(df)
+        for index, row in df.iterrows():
+            us_num = row['user_story']
+            task_num = row['task']
+            assigned = row['assigned_to']
+
+            sprint = row['sprint']
+            user_story = f'US-{int(us_num)}' if us_num != 'Storyless' else 'Storyless'
+            points = int(row['points'])
+            task = self.__make_hyperlink(task_num)
+            coding = row['coding']
+
+            mem_data = [None] * num_mems
             i = 0
             for mem in members:
                 mem_data[i] = "100%" if assigned == mem else None
                 i += 1
 
-            data_row = [subject, sprint, user_story, points, task, coding]
-            data_row.extend(mem_data)
-            all_data[index] = data_row
+            row_data = [sprint, user_story, points, task, coding]
+            row_data.extend(mem_data)
+            data[index] = row_data
+            
+        result_df = pd.DataFrame(data, columns=data_columns)
+        return result_df
+    
 
-        self.formatted_master_df = pd.DataFrame(all_data, columns=data_columns)
-
-    def __format_df(self, df):
-        for i, row in df.iterrows():
-            us_num = row['user_story']
-            task_num = row['task']
-            df.at[i, 'user_story'] = f'US-{int(us_num)}' if pd.notnull(us_num) else "Storyless"
-            df.at[i, 'task'] = self.__make_hyperlink(task_num)
-
-        return df
     
     ## File Writing
     ##=============================================================================
@@ -275,15 +303,15 @@ class TaigaParsingController:
         self.__create_new_wb(filename, self.sprint_list)
 
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+            master_df = self.get_master_df()
             self.__parsed_data_to_spreadsheet(
-                self.__format_df(self.formatted_master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
-                writer, "All_Data")
+                self.__format_df_for_excel(master_df), writer, "All_Data")
             
             for sprint in self.sprint_list:
-                sprint_df = self.formatted_master_df.loc[self.formatted_master_df['sprint'] == sprint]
+                sprint_df = master_df.loc[master_df['sprint'] == sprint]
                 self.__parsed_data_to_spreadsheet(
-                    self.__format_df(sprint_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
+                    self.__format_df_for_excel(sprint_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
                     writer, sprint)
                 
     def get_master_df(self):
-        return self.formatted_master_df
+        return self.formatted_master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])

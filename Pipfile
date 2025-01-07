@@ -11,6 +11,7 @@ openpyxl = "*"
 pywebview = "*"
 pytz = "*"
 tksheet = "*"
+tkcalendar = "*"
 
 [dev-packages]
 

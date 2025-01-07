@@ -190,8 +190,17 @@ class DataController:
     def taiga_retrieve_from_files(self):
         self.tp.retrieve_data_by_file()
     
-    ## Dataframe retrieval
+    ## Data retrieval
     ##=============================================================================
+
+    def get_members(self) -> list:
+        return self.tp.get_members()
+    
+    def get_sprints(self) -> list:
+        return self.tp.get_sprints()
+    
+    def get_user_stories(self) -> list:
+        return self.tp.get_user_stories()
 
     def get_taiga_master_df(self):
         return self.tp.get_master_df()
