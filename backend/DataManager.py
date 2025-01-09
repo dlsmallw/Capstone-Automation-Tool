@@ -1,8 +1,10 @@
 import configparser
 import os
-
+import openpyxl as opyxl
 import pandas as pd
-from backend import GitHubCommitParser, TaigaCSVParser
+from typing import Type
+from backend.TaigaCSVParser import TaigaParsingController
+from backend.GitHubCommitParser import GitHubParsingController
 
 class DataController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
@@ -16,6 +18,7 @@ class DataController:
 
     def __init__(self):
         self.__load_config()
+        self.__load_raw_data()
 
     ## Config Management
     ##=============================================================================
@@ -29,7 +32,7 @@ class DataController:
             repo_owner = config.get('github-config', 'gh_repo_owner')
             repo_name = config.get('github-config', 'gh_repo_name')
 
-            self.ghp = GitHubCommitParser.GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
+            self.ghp = GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
         else:
             self.__build_gh_section()
 
@@ -40,9 +43,9 @@ class DataController:
             us_report_url = config.get('taiga-config', 'us_report_api_url')
             task_report_url = config.get('taiga-config', 'task_report_api_url')
 
-            self.tp = TaigaCSVParser.TaigaParsingController(us_report_url, task_report_url)
+            self.tp = TaigaParsingController(us_report_url, task_report_url)
         else:
-            self.__build_config_section(config)
+            self.__build_taiga_section()
 
     def __load_config(self):
         config = configparser.RawConfigParser()
@@ -58,16 +61,16 @@ class DataController:
     def __build_gh_section(self):
         config = self.config_parser
         config.add_section('github-config')
-        self.__update_option_in_config('gh_username', None)
-        self.__update_option_in_config('gh_token', None)
-        self.__update_option_in_config('gh_repo_owner', None)
-        self.__update_option_in_config('gh_repo_name', None)
+        self.__update_option_in_config('github-config', 'gh_username', None)
+        self.__update_option_in_config('github-config', 'gh_token', None)
+        self.__update_option_in_config('github-config', 'gh_repo_owner', None)
+        self.__update_option_in_config('github-config', 'gh_repo_name', None)
 
     def __build_taiga_section(self):
         config = self.config_parser
         config.add_section('taiga-config')
-        self.__update_option_in_config('us_report_api_url', None)
-        self.__update_option_in_config('task_report_api_url', None)
+        self.__update_option_in_config('taiga-config', 'us_report_api_url', None)
+        self.__update_option_in_config('taiga-config', 'task_report_api_url', None)
 
     def __build_config_file(self):
         self.__build_taiga_section()
@@ -190,7 +193,7 @@ class DataController:
     def taiga_retrieve_from_files(self):
         self.tp.retrieve_data_by_file()
     
-    ## Data retrieval
+    ## Data retrieval/setting
     ##=============================================================================
 
     def get_members(self) -> list:
@@ -207,3 +210,125 @@ class DataController:
     
     def get_gh_master_df(self) -> pd.DataFrame:
         return self.ghp.get_all_commit_data()
+    
+    def set_taiga_master_df(self, df):
+        self.tp.set_master_df(df)
+
+    def clear_taiga_data(self):
+        self.tp.clear_data()
+        self.remove_file('./raw_data/raw_taiga_master_data.csv')
+        self.remove_file('./raw_data/raw_taiga_us_data.csv')
+        self.remove_file('./raw_data/raw_taiga_task_data.csv')
+    
+    def taiga_data_ready(self):
+        return self.tp.data_is_ready()
+    
+    def github_data_ready(self):
+        return self.ghp.data_is_ready()
+    
+    ## Raw Data Storage/Loading
+    ##=============================================================================
+
+    def __create_new_wb(self, filename, sheets):
+        if os.path.exists(filename):
+            os.remove(filename)
+        
+        wb = opyxl.Workbook()
+        wb.create_sheet("All_Data")
+
+        for contributor in sheets:
+            wb.create_sheet(contributor)
+
+        for sheet in wb.sheetnames:
+            if sheet not in self.contributor_list and sheet != "All_Data":
+                del wb[sheet]
+
+        wb.save(filename)
+        wb.close()
+
+    def __parsed_data_to_spreadsheet(self, df, writer, sheet):
+        df.to_excel(writer, sheet_name=sheet, index=False)
+
+    def write_to_csv(self, filepath: Type[str], df: Type[pd.DataFrame]):
+        subdirectories = filepath.replace('.', '').split('/')
+        curr_dir_level = '.'
+        for i in range(len(subdirectories) - 1):
+            dir = subdirectories[i]
+            curr_dir_level += f'/{dir}'
+
+            if not os.path.exists(curr_dir_level):
+                os.makedirs(curr_dir_level)
+
+        df.to_csv(filepath, index=False)
+
+    def __load_from_csv(self, filepath) -> pd.DataFrame | None:
+        df = None
+        if os.path.exists(filepath):
+            print(f' > Loading data from {filepath}')
+            df = pd.read_csv(filepath)
+            df.replace(['', 'None', 'nan', 'NaN'], [None, None, None, None], inplace=True)
+        else:
+            print(f' > File {filepath} does not exist')
+        return df
+    
+    def __load_raw_data(self):
+        taiga_raw_master_df = self.__load_from_csv('./raw_data/raw_taiga_master_data.csv')
+        taiga_raw_us_df = self.__load_from_csv('./raw_data/raw_taiga_us_data.csv')
+        taiga_raw_task_df = self.__load_from_csv('./raw_data/raw_taiga_task_data.csv')
+        self.tp.load_raw_data(taiga_raw_master_df, taiga_raw_us_df, taiga_raw_task_df)
+
+        github_df = self.__load_from_csv('./raw_data/raw_github_data.csv')
+        self.ghp.load_raw_data(github_df)
+
+    def __store_all_raw_data(self, filename, df):
+        self.write_to_csv(filename, df)
+
+    def store_raw_taiga_data(self):
+        raw_master_df = self.tp.get_master_df()
+        raw_us_df = self.tp.get_raw_us_data()
+        raw_task_df = self.tp.get_raw_task_data()
+
+        if raw_master_df is not None:
+            self.write_to_csv('./raw_data/raw_taiga_master_data.csv', raw_master_df)
+
+        if raw_us_df is not None:
+            self.write_to_csv('./raw_data/raw_taiga_us_data.csv', raw_us_df)
+
+        if raw_task_df is not None:
+            self.write_to_csv('./raw_data/raw_taiga_task_data.csv', raw_task_df)
+
+    def __store_raw_github_data(self, df):
+        self.write_to_csv('./raw_data/raw_github_data.csv', df)
+
+    def write_to_excel(self, filename='./data_out/commit_data.xlsx'):
+        if 'data_out' in filename:
+            dir_name = 'data_out'
+        else:
+            dir_name = 'raw_data'
+
+        if not os.path.exists(f'./{dir_name}'):
+            os.makedirs(f'./{dir_name}')
+
+        self.__write_data(filename)
+
+    def __write_data(self, filename, excel=True):
+        if excel:
+            contributors = self.get_contributors()
+            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'az_date', 'url']]
+            commits_by_contributor = self.get_commits_by_committer_data()
+
+            self.__create_new_wb(filename, contributors)
+            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+                self.__parsed_data_to_spreadsheet(all_data, writer, 'All_Data')
+
+                for contributor in contributors:
+                    contributor_df = commits_by_contributor[contributor][['id', 'task_num', 'message', 'az_date', 'url']]
+                    self.__parsed_data_to_spreadsheet(contributor_df, writer, contributor)
+        else:
+            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'utc_datetime', 'az_date', 'url']]
+            all_data.to_csv(filename, index=False)
+
+    def remove_file(self, filepath):
+        if os.path.exists(filepath):
+            os.remove(filepath)
+

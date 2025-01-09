@@ -24,12 +24,12 @@ def generate_table(parent, df):
 
 def main():
     dc = DataController()
-    df = dc.get_gh_master_df()
 
     root = tk.Tk()
     root.title('Capstone Automation Tool')
     root.geometry('1000x800')
     root.minsize(1000, 800)
+    root.maxsize(1000, 800)
     tabControl = ttk.Notebook(root)
 
     home_tab = HomeFrame.HomeFrame(tabControl)

@@ -12,6 +12,7 @@ pywebview = "*"
 pytz = "*"
 tksheet = "*"
 tkcalendar = "*"
+pyinstaller = "*"
 
 [dev-packages]
 

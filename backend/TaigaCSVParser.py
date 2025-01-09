@@ -1,8 +1,11 @@
 import os
 import io
-
+from typing import Type
 import pandas as pd
+import numpy as np
 import openpyxl as opyxl
+import datetime
+import math
 
 import requests
 
@@ -21,6 +24,7 @@ class TaigaParsingController:
 
     member_list = None
     sprint_list = None
+    sprint_dates = None
     us_list = None
     raw_us_df = None
     raw_task_df = None
@@ -31,6 +35,28 @@ class TaigaParsingController:
     def __init__(self, us_url, task_url):
         self.set_us_report_url(us_url)
         self.set_task_report_url(task_url)
+
+    def conv_nan_to_none(self, val):
+        if pd.isna(val):
+            return None
+        else:
+            return val
+
+    def set_master_df(self, df):
+        self.formatted_master_df = df
+        self.data_ready = True
+
+    def load_raw_data(self, master_df, us_df, task_df):
+        if master_df is not None:
+            master_df.replace(['', 'None', 'nan', 'NaN'], [None, None, None, None], inplace=True)
+            self.set_master_df(master_df)
+        if us_df is not None:
+            self.__format_us_data(us_df)
+        if task_df is not None:
+            self.__format_task_data(task_df)
+
+    def data_is_ready(self) -> bool:
+        return self.data_ready
 
     ## API/File declaration
     ##=============================================================================
@@ -121,14 +147,19 @@ class TaigaParsingController:
             return self.__format_us_data(raw_data)
         return False
     
+    def get_raw_us_data(self):
+        return self.raw_us_df
+    
+    def __inv_val_to_none(self, df: Type[pd.DataFrame]):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
+    
     def __parse_user_stories(self, df):
-        user_stories = []
-
-        for row in df:
-            if pd.notnull(row):
-                user_stories.append(row) if row not in user_stories else None
-
-        self.us_list = user_stories
+        df_to_use = df.copy(deep=True)
+        self.__inv_val_to_none(df_to_use)
+        df_to_use.replace(False, None, inplace=True)
+        df_to_use.dropna(inplace=True)
+        df_to_use = df_to_use.drop_duplicates(keep='first').reset_index(drop=True)
+        self.us_list = df_to_use['ref'].tolist()
     
     def get_user_stories(self):
         return self.us_list
@@ -149,6 +180,9 @@ class TaigaParsingController:
                 raw_data = pd.read_excel(task_fp)
             return self.__format_task_data(raw_data)
         return False
+    
+    def get_raw_task_data(self):
+        return self.raw_task_df
 
     def retrieve_data_by_file(self):
         task_parse_success = self.__task_data_from_file()
@@ -162,45 +196,38 @@ class TaigaParsingController:
 
     def clear_data(self):
         self.member_list = None
-        self.sprint_list = None
+        self.sprints_df = None
         self.raw_us_df = None
         self.raw_task_df = None
         self.formatted_master_df = None
 
-    def __parse_members(self, dataframe):
-        members = []
-
-        for row in dataframe:
-            if pd.notnull(row):
-                members.append(row) if row not in members else None
-
-        self.member_list = members
+    def __parse_members(self, df):
+        df_to_use = df.copy(deep=True)
+        self.__inv_val_to_none(df_to_use)
+        df_to_use.dropna(inplace=True)
+        df_to_use = df_to_use.drop_duplicates(keep='first').reset_index(drop=True)
+        self.member_list = df_to_use.tolist()
 
     def get_members(self):
         return self.member_list
 
     def __parse_sprints(self, df):
-        sprints = []
-
-        for row in df:
-            if pd.notnull(row):
-                sprints.append(row) if row not in sprints else None
-
-        self.sprint_list = sprints
+        df_to_use = df.copy(deep=True)
+        self.__inv_val_to_none(df_to_use)
+        df_to_use.dropna(subset=['sprint', 'sprint_estimated_start', 'sprint_estimated_finish'], inplace=True)
+        self.sprints_df = df_to_use.drop_duplicates(subset=['sprint'], keep='first').reset_index(drop=True)
 
     def get_sprints(self):
-        return self.sprint_list
-    
-    
+        return self.sprints_df['sprint'].tolist()
     
     ## Data preparation
     ##=============================================================================
     
     def __format_us_data(self, raw_df):
         if raw_df is not None:
-                self.raw_us_df = raw_df[['id', 'ref', 'sprint', 'total-points']]
-                self.__parse_sprints(raw_df['sprint'])
-                self.__parse_user_stories(raw_df['ref'])
+                self.raw_us_df = raw_df[['id', 'ref', 'is_closed', 'sprint', 'sprint_estimated_start', 'sprint_estimated_finish', 'total-points']]
+                self.__parse_sprints(raw_df[['sprint', 'sprint_estimated_start', 'sprint_estimated_finish']])
+                self.__parse_user_stories(raw_df[['ref', 'is_closed']])
                 return True
         return False
     
@@ -216,13 +243,26 @@ class TaigaParsingController:
     def __make_hyperlink(self, task_num):
         base_url = 'https://tree.taiga.io/project/dlsmallw-group-8-asu-capstone-natural-language-processing-for-decolonizing-harm-reduction-literature/task/{}'
         return '=HYPERLINK("%s", "Task-%s")' % (base_url.format(task_num), task_num)
+    
+    def __get_sprint_date(self, sprint):
+        start = self.sprints_df[self.sprints_df['sprint'] == sprint]['sprint_estimated_start']
+        end = self.sprints_df[self.sprints_df['sprint'] == sprint]['sprint_estimated_finish']
+        
+        start_date = self.__extract_date(start).date()
+        end_date = self.__extract_date(end).date()
+
+        return start_date.strftime('%m/%d/%Y'), end_date.strftime('%m/%d/%Y')
+
+    def __extract_date(self, date_obj) -> pd.Timestamp | None:
+        idx_obj = date_obj.values
+        raw_val = idx_obj[0] if len(idx_obj) > 0 else None
+        return pd.to_datetime(raw_val, format='%Y-%m-%d') if raw_val is not None else None
 
     def __format_and_centralize_data(self):
-        data_columns = ['sprint', 'user_story', 'points', 'task', 'assigned_to', 'coding', 'subject']
+        data_columns = ['sprint', 'sprint_start', 'sprint_end', 'user_story', 'points', 'task', 'assigned_to', 'coding', 'subject']
 
         us_df = self.raw_us_df
         task_df = self.raw_task_df
-        print(task_df.columns)
 
         all_data = [0] * len(task_df)
 
@@ -230,18 +270,21 @@ class TaigaParsingController:
             us_num = row['user_story']
             us_row = us_df.loc[us_df['ref'] == us_num]
 
+            
             sprint = row['sprint']
-            user_story = int(us_num) if pd.notnull(us_num) else 'Storyless'
+            sprint_start, sprint_end = self.__get_sprint_date(sprint)
+
+            user_story = int(us_num) if pd.notnull(us_num) else -1
             points = int(us_row['total-points'].values[0] if pd.notnull(us_num) else 0)
             task = int(row['ref'])
             assigned = row['assigned_to'] if pd.notnull(row['assigned_to']) else 'Unassigned'
             coding = ""
             subject = row['subject']
             
-            data_row = [sprint, user_story, points, task, assigned, coding, subject]
+            data_row = [sprint, sprint_start, sprint_end, user_story, points, task, assigned, coding, subject]
             all_data[index] = data_row
 
-        self.formatted_master_df = pd.DataFrame(all_data, columns=data_columns)
+        self.set_master_df(pd.DataFrame(all_data, columns=data_columns))
 
     def __format_df_for_excel(self, df):
         members = self.get_members()
@@ -250,14 +293,14 @@ class TaigaParsingController:
         data_columns = ['sprint', 'user_story', 'points', 'task', 'coding']
         data_columns.extend(members)
 
-        data = [0] * len(df)
+        data = [None] * len(df)
         for index, row in df.iterrows():
             us_num = row['user_story']
             task_num = row['task']
             assigned = row['assigned_to']
 
             sprint = row['sprint']
-            user_story = f'US-{int(us_num)}' if us_num != 'Storyless' else 'Storyless'
+            user_story = f'US-{int(us_num)}' if us_num != -1 else 'Storyless'
             points = int(row['points'])
             task = self.__make_hyperlink(task_num)
             coding = row['coding']
@@ -287,11 +330,13 @@ class TaigaParsingController:
         wb = opyxl.Workbook()
         wb.create_sheet("All_Data")
 
-        for sprint in self.sprint_list:
+        sprints = self.get_sprints()
+
+        for sprint in sprints:
             wb.create_sheet(sprint)
 
         for sheet in wb.sheetnames:
-            if sheet not in self.sprint_list and sheet != "All_Data":
+            if sheet not in sprints and sheet != "All_Data":
                 del wb[sheet]
 
         wb.save(filename)
@@ -300,14 +345,14 @@ class TaigaParsingController:
         df.to_excel(writer, sheet_name=sheet)
 
     def write_data(self, filename):
-        self.__create_new_wb(filename, self.sprint_list)
+        sprints = self.get_sprints()
+        self.__create_new_wb(filename, sprints)
 
         with pd.ExcelWriter(filename, engine='openpyxl') as writer:
             master_df = self.get_master_df()
-            self.__parsed_data_to_spreadsheet(
-                self.__format_df_for_excel(master_df), writer, "All_Data")
+            self.__parsed_data_to_spreadsheet(self.__format_df_for_excel(master_df), writer, "All_Data")
             
-            for sprint in self.sprint_list:
+            for sprint in sprints:
                 sprint_df = master_df.loc[master_df['sprint'] == sprint]
                 self.__parsed_data_to_spreadsheet(
                     self.__format_df_for_excel(sprint_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 

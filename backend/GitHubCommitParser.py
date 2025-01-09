@@ -25,12 +25,22 @@ class GitHubParsingController:
 
     api_ref_validated = False
     auth_verified = False
+    
     data_ready = False
 
     def __init__(self, username, token, owner, repo):
         self.set_gh_auth(username, token)
         self.set_repo_details(owner, repo)
-        self.__load_from_csv()
+
+    def load_raw_data(self, raw_df):
+        if raw_df is not None:
+            contributors = sorted(raw_df['committer'].unique())
+            self.__set_commit_data(raw_df)
+            self.__set_contributors(contributors)
+            self.__parse_commits_by_committer()
+
+    def data_is_ready(self) -> bool:
+        return self.data_ready
 
     ## Auth Management
     ##=============================================================================
@@ -310,7 +320,6 @@ class GitHubParsingController:
         latest = all_data['utc_datetime'].max().date()
         self.raw_commit_df = all_data
         self.latest_commit_date = f'{latest.isoformat()}T00:00:00Z'
-        print(self.latest_commit_date)
 
     def get_all_commit_data(self) -> pd.DataFrame:
         return self.raw_commit_df
@@ -380,31 +389,8 @@ class GitHubParsingController:
 
     def __parsed_data_to_spreadsheet(self, df, writer, sheet):
         df.to_excel(writer, sheet_name=sheet, index=False)
-
-    def write_to_csv(self, filename='./data_out/commit_data.csv'):
-        if 'data_out' in filename:
-            dir_name = 'data_out'
-        else:
-            dir_name = 'raw_data'
-
-        if not os.path.exists(f'./{dir_name}'):
-            os.makedirs(f'./{dir_name}')
-        self.__write_data(filename, False)
-
-    def __load_from_csv(self):
-        filename = './raw_data/raw_commit_data.csv'
-        if os.path.exists(filename):
-            print(' > LOADING COMMIT DATA FROM CSV FILE')
-            all_data = pd.read_csv(filename)
-            contributors = sorted(all_data['committer'].unique())
-            self.__set_commit_data(all_data)
-            self.__set_contributors(contributors)
-            self.__parse_commits_by_committer()
-        else:
-            print(' > NO COMMIT DATA CSV FILE')
-
-    def __store_raw_data(self):
-        self.write_to_csv('./raw_data/raw_commit_data.csv')
+   
+    
 
     def write_to_excel(self, filename='./data_out/commit_data.xlsx'):
         if 'data_out' in filename:
