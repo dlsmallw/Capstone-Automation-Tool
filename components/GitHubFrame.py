@@ -1,4 +1,4 @@
-from backend.DataManager import DataController
+from models import DataManager
 import tkinter as tk
 from tkinter import ttk, filedialog
 from typing import Type
@@ -10,7 +10,7 @@ class GitHubFrame(ttk.Frame):
     root = None
     DialogBox = None
 
-    def __init__(self, parent, dc: Type[DataController]):
+    def __init__(self, parent, dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.root = parent
@@ -36,7 +36,7 @@ class GitHubFrame(ttk.Frame):
 class ConfigFrame(ttk.Frame):
     parent_frame = None
 
-    def __init__(self, parent: Type[GitHubFrame], dc: Type[DataController]):
+    def __init__(self, parent: Type[GitHubFrame], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.parent_frame = parent
@@ -144,7 +144,7 @@ class ConfigFrame(ttk.Frame):
 class DataFrame(ttk.Frame):
     parent_frame = None
 
-    def __init__(self, parent: Type[GitHubFrame], ac: Type[DataController]):
+    def __init__(self, parent: Type[GitHubFrame], ac: Type[DataManager.DataController]):
         super().__init__(parent)
         self.ac = ac
         self.parent_frame = parent

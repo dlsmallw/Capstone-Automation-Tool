@@ -6,14 +6,8 @@ import numpy as np
 import openpyxl as opyxl
 import datetime
 import math
-
 import requests
 
-import tkinter as tk
-from tkinter import filedialog
-
-root = tk.Tk()
-root.withdraw()
 
 class TaigaParsingController:
     us_report_url = None

@@ -3,8 +3,7 @@ import os
 import openpyxl as opyxl
 import pandas as pd
 from typing import Type
-from backend.TaigaCSVParser import TaigaParsingController
-from backend.GitHubCommitParser import GitHubParsingController
+from models import TaigaCSVParser, GitHubCommitParser
 
 class DataController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
@@ -32,7 +31,7 @@ class DataController:
             repo_owner = config.get('github-config', 'gh_repo_owner')
             repo_name = config.get('github-config', 'gh_repo_name')
 
-            self.ghp = GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
+            self.ghp = GitHubCommitParser.GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
         else:
             self.__build_gh_section()
 
@@ -43,7 +42,7 @@ class DataController:
             us_report_url = config.get('taiga-config', 'us_report_api_url')
             task_report_url = config.get('taiga-config', 'task_report_api_url')
 
-            self.tp = TaigaParsingController(us_report_url, task_report_url)
+            self.tp = TaigaCSVParser.TaigaParsingController(us_report_url, task_report_url)
         else:
             self.__build_taiga_section()
 

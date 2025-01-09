@@ -9,14 +9,15 @@ import numpy as np
 import math
 
 from components import DialogWindow
-from backend.DataManager import DataController
+
+from models import DataManager
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
 class TaigaFrame(ttk.Frame):
     root = None
     DialogBox = None
 
-    def __init__(self, parent: Type[tk.Tk], dc: Type[DataController]):
+    def __init__(self, parent: Type[tk.Tk], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.root = parent
@@ -50,7 +51,7 @@ class TaigaFrame(ttk.Frame):
         return win.result
 
 class ConfigFrame(ttk.Frame):
-    def __init__(self, parent: Type[TaigaFrame], dc: Type[DataController]):
+    def __init__(self, parent: Type[TaigaFrame], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.parent_frame = parent
@@ -206,7 +207,7 @@ class DataFrame(ttk.Frame):
     master_df : Type[pd.DataFrame] = None
     sheet_master_df : Type[pd.DataFrame] = None
 
-    def __init__(self, parent: Type[TaigaFrame], dc: Type[DataController]):
+    def __init__(self, parent: Type[TaigaFrame], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.parent_frame = parent

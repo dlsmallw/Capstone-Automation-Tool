@@ -1,4 +1,4 @@
-from backend.DataManager import DataController
+from models import DataManager
 import tkinter as tk
 from tkinter import ttk, filedialog
 from typing import Type
