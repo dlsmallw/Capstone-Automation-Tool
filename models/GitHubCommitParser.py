@@ -1,6 +1,8 @@
 
 import os
+from typing import Type
 import pandas as pd
+import numpy as np
 import requests
 import datetime
 import openpyxl as opyxl
@@ -28,6 +30,8 @@ class GitHubParsingController:
     
     data_ready = False
 
+    
+
     def __init__(self, username, token, owner, repo):
         self.set_gh_auth(username, token)
         self.set_repo_details(owner, repo)
@@ -35,7 +39,7 @@ class GitHubParsingController:
     def load_raw_data(self, raw_df):
         if raw_df is not None:
             contributors = sorted(raw_df['committer'].unique())
-            self.__set_commit_data(raw_df)
+            self.set_commit_data(raw_df)
             self.__set_contributors(contributors)
             self.__parse_commits_by_committer()
 
@@ -181,7 +185,7 @@ class GitHubParsingController:
 
                 if suspected_name in self.contributor_list:
                     return suspected_name
-        return 'unknown'
+        return 'Unknown'
     
     def __get_paginated_branch_data(self, url):
         pagesRemaining = True
@@ -202,14 +206,12 @@ class GitHubParsingController:
                 next_url = links.get('next').get('url')
             except:
                 pagesRemaining = False
-
         return branches
     
     def __get_paginated_commit_data(self, url):
         pagesRemaining = True
         commits = []
         next_url = url
-
         while pagesRemaining:
             res = self.__make_gh_api_call(next_url)
             links = res.links
@@ -223,32 +225,30 @@ class GitHubParsingController:
                 committer = self.__get_commit_author(commit_entry)
                 # Commit date and title
                 commit_msg = commit_obj['message']
+                match = re.search(pattern, commit_msg, re.IGNORECASE)
 
-                if not 'merge' in commit_msg.lower():
-                    match = re.search(pattern, commit_msg, re.IGNORECASE)
-
-                    if match:
-                        task_num = int(re.search(r'\d+', match.group()).group())
-                    else:
-                        task_num = -1
+                if match:
+                    task_num = int(re.search(r'\d+', match.group()).group())
+                else:
+                    task_num = None
+            
+                # Takes the commit timezone (UTC) and converts to AZ timezone
+                utc_dt = datetime.datetime.strptime(commit_obj['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
+                az_dt = utc_dt.astimezone(pytz.timezone('US/Arizona'))
                 
-                    # Takes the commit timezone (UTC) and converts to AZ timezone
-                    utc_dt = datetime.datetime.strptime(commit_obj['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
-                    az_dt = utc_dt.astimezone(pytz.timezone('US/Arizona'))
-                    
-                    # Used for identifying and filtering commits
-                    id = commit_entry['sha']
-                    url = commit_entry['html_url']
+                # Used for identifying and filtering commits
+                id = commit_entry['sha']
+                url = commit_entry['html_url']
 
-                    commits.append({
-                        "id": id,
-                        "task_num": task_num,
-                        "url": url,
-                        "message": commit_msg,
-                        "utc_datetime": f'{utc_dt}',
-                        "az_date": f'{az_dt.strftime('%m/%d/%Y')}',
-                        "committer": committer
-                    })
+                commits.append({
+                    "az_date": f'{az_dt.strftime('%m/%d/%Y')}',
+                    "message": commit_msg,
+                    "task": task_num,
+                    "committer": committer,
+                    "id": id,
+                    "utc_datetime": f'{utc_dt}',
+                    "url": url
+                })
 
             try:
                 next_url = links.get('next').get('url')
@@ -273,14 +273,22 @@ class GitHubParsingController:
         url = f'{self.gh_base_url}/repos/{owner}/{repo}/contributors'
 
         res = self.__make_gh_api_call(url).json()
-
-        contributors = []
-
-        for entry in res:
-            contributors.append(entry['login'])
-
-        contributors.append('unknown')
+        contrbutor_df = pd.json_normalize(res)['login']
+        contributors = contrbutor_df.tolist()
+        contributors.append('Unknown')
         self.__set_contributors(contributors)
+
+    def __inv_val_to_none(self, df: Type[pd.DataFrame]):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
+
+    def get_tasks_list(self):
+        df_to_use = self.raw_commit_df['task'].copy(deep=True)
+        self.__inv_val_to_none(df_to_use)
+        df_to_use.dropna(inplace=True)
+        df_to_use = df_to_use.drop_duplicates(keep='first').reset_index(drop=True)
+        df_to_use = df_to_use.astype(int)
+        task_list = df_to_use.tolist()
+        return task_list
 
     def __set_contributors(self, contributors):
         self.contributor_list = contributors
@@ -303,23 +311,22 @@ class GitHubParsingController:
             else:
                 url = f'{self.gh_base_url}/repos/{owner}/{repo}/commits?per_page=100&sha={branch_sha}'
 
-            print(f'{branch}: {branch_sha}')
-
             branch_commits = self.__get_paginated_commit_data(url)
 
             if all_data is None:
                 all_data = branch_commits
             else:
-                all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+                all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset=['id'], keep='last').reset_index(drop=True)
 
-        self.__set_commit_data(all_data)
+        self.set_commit_data(all_data)
     
-    def __set_commit_data(self, all_data):
+    def set_commit_data(self, all_data):
         all_data['utc_datetime'] = pd.to_datetime(all_data['utc_datetime'])
         all_data.sort_values(by='utc_datetime', inplace=True)
         latest = all_data['utc_datetime'].max().date()
         self.raw_commit_df = all_data
         self.latest_commit_date = f'{latest.isoformat()}T00:00:00Z'
+        self.data_ready = True
 
     def get_all_commit_data(self) -> pd.DataFrame:
         return self.raw_commit_df
@@ -345,26 +352,25 @@ class GitHubParsingController:
         self.__parse_repo_contributors()
         if len(self.get_contributors()) <= 0:
             return
-        
         self.__parse_repo_branches()
         if len(self.get_branches()) <= 0:
             return
-
         self.__parse_all_commits()
         if len(self.get_all_commit_data()) <= 0:
             return
-        self.__store_raw_data()
-        
         self.__parse_commits_by_committer()
         if len(self.get_commits_by_committer_data()) <= 0:
             return
-        
         self.data_ready = True
 
     def clear_data(self):
         self.contributor_list = None
+        self.branch_list = None
         self.raw_commit_df = None
         self.commits_by_committer_df = None
+        self.latest_commit_date = None
+        self.api_ref_validated = False
+        self.auth_verified = False
         self.data_ready = False
 
     ## File Writing
@@ -406,7 +412,7 @@ class GitHubParsingController:
     def __write_data(self, filename, excel=True):
         if excel:
             contributors = self.get_contributors()
-            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'az_date', 'url']]
+            all_data = self.get_all_commit_data()[['id', 'task', 'committer', 'message', 'az_date', 'url']]
             commits_by_contributor = self.get_commits_by_committer_data()
 
             self.__create_new_wb(filename, contributors)
@@ -414,8 +420,8 @@ class GitHubParsingController:
                 self.__parsed_data_to_spreadsheet(all_data, writer, 'All_Data')
 
                 for contributor in contributors:
-                    contributor_df = commits_by_contributor[contributor][['id', 'task_num', 'message', 'az_date', 'url']]
+                    contributor_df = commits_by_contributor[contributor][['id', 'task', 'message', 'az_date', 'url']]
                     self.__parsed_data_to_spreadsheet(contributor_df, writer, contributor)
         else:
-            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'utc_datetime', 'az_date', 'url']]
+            all_data = self.get_all_commit_data()[['id', 'task', 'committer', 'message', 'utc_datetime', 'az_date', 'url']]
             all_data.to_csv(filename, index=False)

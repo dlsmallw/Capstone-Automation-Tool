@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk, filedialog, StringVar
 import tksheet as tks
@@ -6,7 +5,7 @@ import tksheet as tks
 from typing import Type
 import pandas as pd
 import numpy as np
-import math
+import threading
 
 from components import DialogWindow
 
@@ -15,12 +14,14 @@ from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
 class TaigaFrame(ttk.Frame):
     root = None
+    parent_frame = None
     DialogBox = None
 
-    def __init__(self, parent: Type[tk.Tk], dc: Type[DataManager.DataController]):
+    def __init__(self, parent: Type[ttk.Notebook], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
-        self.root = parent
+        self.parent_frame = parent
+        self.root = parent.master
 
         Dialog = DialogWindow.Dialog
         Dialog.root = parent
@@ -32,15 +33,39 @@ class TaigaFrame(ttk.Frame):
         self.config_frame.pack(fill='x', anchor='n', pady=(0, 10))
         self.data_frame.pack(fill='both', expand=True, anchor='n')
 
+    def refresh(self):
+        self.root.update()
+        self.root.after(1000,self.refresh)
+
+    def start_file_import_thread(self):
+        self.refresh()
+        threading.Thread(target=self.import_from_files).start()
+
+    def start_api_import_thread(self):
+        self.refresh()
+        threading.Thread(target=self.import_from_api).start()
+    
     def import_from_files(self):
+        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga File Import Call, Please Wait...')
+        temp_lbl.pack()
         self.dc.taiga_retrieve_from_files()
         df = self.dc.get_taiga_master_df()
         self.data_frame.build_data_display(df)
+        temp_lbl.destroy()
 
     def import_from_api(self):
+        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga API Import Call, Please Wait...')
+        temp_lbl.pack()
         self.dc.taiga_retrieve_from_api()
         df = self.dc.get_taiga_master_df()
         self.data_frame.build_data_display(df)
+        temp_lbl.destroy()
+
+    def taiga_data_ready(self) -> bool:
+        return self.data_frame.taiga_data_ready()
+    
+    def get_taiga_df(self) -> pd.DataFrame:
+        return self.data_frame.get_taiga_df()
 
     def dialog(self, msg):
         self.DialogBox(msg)
@@ -62,7 +87,7 @@ class ConfigFrame(ttk.Frame):
         file_sel_widget.pack(padx=8, pady=8, fill='x')
         api_tab = ttk.Frame(self.notebook)
         api_form_widget = self.__build_api_form(api_tab)
-        api_form_widget.pack(padx=8, pady=8, fill='x')
+        api_form_widget.pack(fill='x', padx=8, pady=8)
 
         self.notebook.add(file_tab, text='From File')
         self.notebook.add(api_tab, text='From API')
@@ -70,13 +95,10 @@ class ConfigFrame(ttk.Frame):
 
     def __generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
         field_lbl = tk.Label(field_frame, text=lbl_str, width=lbl_width, anchor='e')
-
         field_lbl.grid(row=row, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=row, column=1, padx=(1, 2), sticky='nsew')
-
         if btn_obj is not None:
             btn_obj.grid(row=row, column=2, padx=(4, 4))
-
         return target_obj
 
     def dialog(self, msg):
@@ -122,7 +144,7 @@ class ConfigFrame(ttk.Frame):
 
         # Buttons for importing and exporting data
         btn_frame = ttk.Frame(widget_frame)
-        self.import_data_from_file_btn = tk.Button(btn_frame, text='Import from Files', state='disabled', command=lambda: self.parent_frame.import_from_files())
+        self.import_data_from_file_btn = tk.Button(btn_frame, text='Import from Files', state='disabled', command=lambda: self.parent_frame.start_file_import_thread())
         self.import_data_from_file_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         file_sel_lbl.pack(fill='x', pady=(0, 8))
@@ -143,16 +165,15 @@ class ConfigFrame(ttk.Frame):
             if type == 'us':
                 if 'https://api.taiga.io/api/v1/userstories/csv?uuid=' in url:
                     self.dc.set_taiga_us_api_url(url)
+                    self.__update_field(field, url)
                     return
             elif type == 'task':
                 if 'https://api.taiga.io/api/v1/tasks/csv?uuid=' in url:
                     self.dc.set_taiga_task_api_url(url)
+                    self.__update_field(field, url)
                     return
             else:
                 return
-
-            self.__update_field(field, url)
-                
         self.dialog('Invalid URL entered!')
 
     def __url_update_dialog(self, field: Type[tk.Label], type: Type[str]):
@@ -187,7 +208,7 @@ class ConfigFrame(ttk.Frame):
 
         # Buttons for importing and exporting data
         btn_frame = ttk.Frame(widget_frame)
-        self.import_from_api_btn = tk.Button(btn_frame, text='Import from API', state='disabled', command=lambda: self.parent_frame.import_from_api(), anchor='e')
+        self.import_from_api_btn = tk.Button(btn_frame, text='Import from API', state='disabled', command=lambda: self.parent_frame.start_api_import_thread(), anchor='e')
         self.import_from_api_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         api_config_lbl.pack(fill='x', pady=(0, 8))
@@ -200,12 +221,13 @@ class ConfigFrame(ttk.Frame):
         return widget_frame
     
 class DataFrame(ttk.Frame):
-    parent_frame = None
+    parent_frame : Type[TaigaFrame] = None
     filter_panel : Type[ttk.Frame] = None
     btn_frame : Type[ttk.Frame] = None
     sheet : Type[tks.Sheet] = None
     master_df : Type[pd.DataFrame] = None
     sheet_master_df : Type[pd.DataFrame] = None
+    col_widths = None
 
     def __init__(self, parent: Type[TaigaFrame], dc: Type[DataManager.DataController]):
         super().__init__(parent)
@@ -219,6 +241,12 @@ class DataFrame(ttk.Frame):
 
     def __dialog(self, msg):
         self.parent_frame.dialog(msg)
+
+    def taiga_data_ready(self) -> bool:
+        return self.sheet_master_df is not None
+    
+    def get_taiga_df(self) -> pd.DataFrame:
+        return self.sheet_master_df
 
     def __destroy_frames(self):
         if self.filter_panel is not None:
@@ -249,7 +277,7 @@ class DataFrame(ttk.Frame):
             return int(str_val)
         
     def __inv_val_to_none(self, df: Type[pd.DataFrame]):
-        df.replace(['', 'None', 'nan', np.nan], [None, None, None, None], inplace=True)
+        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
     
     def __dataframe_to_table_format(self, df_to_format: Type[pd.DataFrame]):
         df = df_to_format.copy(deep=True)
@@ -264,7 +292,6 @@ class DataFrame(ttk.Frame):
     
     def __parse_table_data_to_df(self):
         headers = self.sheet.headers()
-        
         num_rows = self.sheet.get_total_rows()
 
         if num_rows > 0:
@@ -284,20 +311,21 @@ class DataFrame(ttk.Frame):
         
         return formatted_df
     
-    def __upate_df_row_values(self, df1_val, df2_val):
-        if pd.isna(df1_val) and not pd.isna(df2_val):
-            return df2_val
-        else:
-            return df1_val
+    def __merge_dataframes(self, master_df, new_df):
+        self.__inv_val_to_none(master_df)
+        self.__inv_val_to_none(new_df)
+        master_df.set_index('task', inplace=True)
+        master_df.update(new_df.set_index('task'))
+        master_df.reset_index(inplace=True)
+        master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])
+        return master_df[['sprint', 'sprint_start', 'sprint_end', 'user_story', 'points', 'task', 'assigned_to', 'coding', 'subject']]
 
     def __update_sheet_df(self, new_df):
         if self.sheet_master_df is not None:
-            master_df = self.sheet_master_df.copy(deep=True)
-            self.__inv_val_to_none(master_df)
-            self.__inv_val_to_none(new_df)
-            master_df = pd.concat([master_df, new_df]).drop_duplicates(subset=['task'], keep='first').reset_index(drop=True)
-            master_df.update(new_df, overwrite=True)
-            self.sheet_master_df = master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])
+            master_copy = self.sheet_master_df.copy(deep=True)
+            new_df_copy = new_df.copy(deep=True)
+            master_copy = self.__merge_dataframes(master_copy, new_df_copy)
+            self.sheet_master_df = master_copy.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])
         else:
             self.master_df = new_df
             self.sheet_master_df = new_df
@@ -448,17 +476,25 @@ class DataFrame(ttk.Frame):
     
     def __build_table(self, df) -> tks.Sheet:
         formatted_df = self.__dataframe_to_table_format(df)
+        formatted_df.sort_values(by='sprint_start', ascending=True, inplace=True)
         sheet = tks.Sheet(self, header=list(formatted_df.columns), data=formatted_df.values.tolist())
         sheet.enable_bindings('all', "edit_header")
         # sheet.height_and_width(height=300, width=1000)
 
-        total_width = 1000
-        for i in range(len(df.columns) - 1):
-            text_width = sheet.get_column_text_width(i)
-            total_width -= text_width
-            sheet.column_width(i, text_width)
+        if self.col_widths is None:
+            column_widths = []
+            index = 0
+            for column in formatted_df.columns:
+                text_width = sheet.get_column_text_width(index)
+                if column == 'subject':
+                    text_width = 285
 
-        sheet.column_width(len(df.columns) - 1, 285)
+                column_widths.append(text_width)
+                index += 1
+
+            self.col_widths = column_widths
+
+        sheet.set_column_widths(self.col_widths)
         return sheet
 
     def build_data_display(self, df):

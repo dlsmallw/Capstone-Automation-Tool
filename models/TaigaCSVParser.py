@@ -4,8 +4,6 @@ from typing import Type
 import pandas as pd
 import numpy as np
 import openpyxl as opyxl
-import datetime
-import math
 import requests
 
 

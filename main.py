@@ -1,7 +1,7 @@
 from components.App import Application
 
 def main():
-    app = Application()
+    Application()
     
 if __name__=="__main__":
     main()

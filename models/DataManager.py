@@ -47,13 +47,13 @@ class DataController:
             self.__build_taiga_section()
 
     def __load_config(self):
-        config = configparser.RawConfigParser()
+        self.config_parser = configparser.RawConfigParser()
 
         if not os.path.exists(self.config_fp):
             open(self.config_fp, 'w').close()
-            self.__build_config_file()            
-        config.read(self.config_fp)
-        self.config_parser = config  # for future use
+            self.__build_config_file()
+            
+        self.config_parser.read(self.config_fp)         
         self.__load_gh_config()
         self.__load_taiga_config()
 
@@ -140,6 +140,8 @@ class DataController:
         if success:
             self.__update_gh_config_opt('gh_repo_owner', owner)
             self.gh_repo_verified = self.ghp.validate_repo_exists()
+        return success
+            
 
     def get_repo_owner(self):
         return self.ghp.get_repo_owner()
@@ -149,7 +151,7 @@ class DataController:
         if success:
             self.__update_gh_config_opt('gh_repo_name', repo)
             self.gh_repo_verified = self.ghp.validate_repo_exists()
-
+        return success
 
     def get_repo_name(self):
         return self.ghp.get_repo_name()
@@ -161,7 +163,7 @@ class DataController:
     def get_taiga_us_api_url(self):
         return self.tp.get_us_report_url()
 
-    def set_taiga_task_url(self, url):
+    def set_taiga_task_api_url(self, url):
         self.tp.set_task_report_url(url)
         self.__update_taiga_config_opt('task_report_api_url', url)
 
@@ -210,8 +212,21 @@ class DataController:
     def get_gh_master_df(self) -> pd.DataFrame:
         return self.ghp.get_all_commit_data()
     
+    def get_tasks(self):
+        return self.ghp.get_tasks_list()
+    
+    def get_contributors(self):
+        return self.ghp.get_contributors()
+    
+    def set_gh_master_df(self, df):
+        self.ghp.set_commit_data(df)
+    
     def set_taiga_master_df(self, df):
         self.tp.set_master_df(df)
+
+    def clear_gh_data(self):
+        self.ghp.clear_data()
+        self.remove_file('./raw_data/raw_github_master_data.csv')
 
     def clear_taiga_data(self):
         self.tp.clear_data()
@@ -233,13 +248,13 @@ class DataController:
             os.remove(filename)
         
         wb = opyxl.Workbook()
-        wb.create_sheet("All_Data")
+        wb.create_sheet("Master")
 
         for contributor in sheets:
             wb.create_sheet(contributor)
 
         for sheet in wb.sheetnames:
-            if sheet not in self.contributor_list and sheet != "All_Data":
+            if sheet not in self.contributor_list and sheet != "Master":
                 del wb[sheet]
 
         wb.save(filename)
@@ -271,16 +286,11 @@ class DataController:
         return df
     
     def __load_raw_data(self):
-        taiga_raw_master_df = self.__load_from_csv('./raw_data/raw_taiga_master_data.csv')
-        taiga_raw_us_df = self.__load_from_csv('./raw_data/raw_taiga_us_data.csv')
-        taiga_raw_task_df = self.__load_from_csv('./raw_data/raw_taiga_task_data.csv')
-        self.tp.load_raw_data(taiga_raw_master_df, taiga_raw_us_df, taiga_raw_task_df)
+        self.tp.load_raw_data(self.__load_from_csv('./raw_data/raw_taiga_master_data.csv'), 
+                              self.__load_from_csv('./raw_data/raw_taiga_us_data.csv'), 
+                              self.__load_from_csv('./raw_data/raw_taiga_task_data.csv'))
 
-        github_df = self.__load_from_csv('./raw_data/raw_github_data.csv')
-        self.ghp.load_raw_data(github_df)
-
-    def __store_all_raw_data(self, filename, df):
-        self.write_to_csv(filename, df)
+        self.ghp.load_raw_data(self.__load_from_csv('./raw_data/raw_github_master_data.csv'))
 
     def store_raw_taiga_data(self):
         raw_master_df = self.tp.get_master_df()
@@ -296,8 +306,8 @@ class DataController:
         if raw_task_df is not None:
             self.write_to_csv('./raw_data/raw_taiga_task_data.csv', raw_task_df)
 
-    def __store_raw_github_data(self, df):
-        self.write_to_csv('./raw_data/raw_github_data.csv', df)
+    def store_raw_github_data(self, df):
+        self.write_to_csv('./raw_data/raw_github_master_data.csv', df)
 
     def write_to_excel(self, filename='./data_out/commit_data.xlsx'):
         if 'data_out' in filename:
