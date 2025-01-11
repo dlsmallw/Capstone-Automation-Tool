@@ -1,13 +1,8 @@
-
-
-
 import tkinter as tk
 from tkinter import ttk
 
-
-
 from models import DataManager
-from components import HomeFrame, TaigaFrame, GitHubFrame, ReportsFrame
+from components import HomeFrame, TaigaFrame, GitHubFrame
 
 class Application():
     root = None
