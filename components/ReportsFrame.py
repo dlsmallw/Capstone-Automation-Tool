@@ -39,6 +39,10 @@ class ReportsFrame(ttk.Frame):
         options_panel.pack()
         self.preview_frame.pack(fill='both', expand=True, pady=5, anchor='n')
 
+    def reset_options_frame(self):
+        self.sel_rb.set(None)
+        self.report_type_options_frame.destroy()
+
     def dialog(self, msg):
         self.DialogBox(msg)
 
@@ -227,7 +231,6 @@ class ReportsFrame(ttk.Frame):
         btn_frame.pack()
         self.report_type_options_frame.pack()
 
-
     def build_options_frame(self):
         widget_frame = ttk.Frame(self, borderwidth=2, relief='ridge')
 
@@ -255,13 +258,16 @@ class ReportsFrame(ttk.Frame):
     def handle_ext_type(self, filepath, df):
         if filepath is not None and filepath != '':
             ext = os.path.splitext(filepath)[1]
-            print(ext)
             match ext:
                 case '.xlsx':
                     self.dc.write_to_excel(filepath, df)
+                    self.dialog('Report Exported!')
+                    self.reset_options_frame()
                     return
                 case '.csv':
                     self.dc.write_to_csv(filepath, df)
+                    self.dialog('Report Exported!')
+                    self.reset_options_frame()
                     return
                 case _:
                     pass
