@@ -66,6 +66,12 @@ class TaigaFrame(ttk.Frame):
     
     def get_taiga_df(self) -> pd.DataFrame:
         return self.data_frame.get_taiga_df()
+    
+    def get_members(self) -> list:
+        return self.data_frame.get_members()
+    
+    def get_sprints(self) -> list:
+        return self.data_frame.get_sprints()
 
     def dialog(self, msg):
         self.DialogBox(msg)
@@ -246,7 +252,20 @@ class DataFrame(ttk.Frame):
         return self.sheet_master_df is not None
     
     def get_taiga_df(self) -> pd.DataFrame:
-        return self.sheet_master_df
+        return self.sheet_master_df.copy(deep=True)
+    
+    def sheet_df_col_to_list(self, col_lbl) -> list:
+        df = self.sheet_master_df[col_lbl].copy(deep=True)
+        self.__inv_val_to_none(df)
+        df.dropna(inplace=True)
+        df = df.drop_duplicates(keep='first').reset_index(drop=True)
+        return df.tolist()
+    
+    def get_members(self) -> list:
+        return self.sheet_df_col_to_list('assigned_to')
+    
+    def get_sprints(self) -> list:
+        return self.sheet_df_col_to_list('sprint')
 
     def __destroy_frames(self):
         if self.filter_panel is not None:
@@ -272,7 +291,7 @@ class DataFrame(ttk.Frame):
     
     def __convert_from_str(self, str_val):
         if str_val == 'Storyless' or str_val == '' or pd.isna(str_val):
-            return -1
+            return None
         else:
             return int(str_val)
         

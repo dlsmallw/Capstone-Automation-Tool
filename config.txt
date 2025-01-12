@@ -1,6 +1,7 @@
 [taiga-config]
 us_report_api_url = https://api.taiga.io/api/v1/userstories/csv?uuid=18abe878de9246319afd4512cf45cc34
 task_report_api_url = https://api.taiga.io/api/v1/tasks/csv?uuid=a368e32c271a4e0b94918762640de1a1
+taiga_project_url = https://tree.taiga.io/project/dlsmallw-group-8-asu-capstone-natural-language-processing-for-decolonizing-harm-reduction-literature
 
 [github-config]
 gh_username = dlsmallw

@@ -4,6 +4,7 @@ import openpyxl as opyxl
 import pandas as pd
 from typing import Type
 from models import TaigaCSVParser, GitHubCommitParser
+import requests
 
 class DataController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
@@ -57,19 +58,24 @@ class DataController:
         self.__load_gh_config()
         self.__load_taiga_config()
 
+    def __get_config_opt_val(self, section, opt):
+        config = self.config_parser
+        return config.get(section, opt)
+
     def __build_gh_section(self):
         config = self.config_parser
         config.add_section('github-config')
-        self.__update_option_in_config('github-config', 'gh_username', None)
-        self.__update_option_in_config('github-config', 'gh_token', None)
-        self.__update_option_in_config('github-config', 'gh_repo_owner', None)
-        self.__update_option_in_config('github-config', 'gh_repo_name', None)
+        self.__update_gh_config_opt('gh_username', None)
+        self.__update_gh_config_opt('gh_token', None)
+        self.__update_gh_config_opt('gh_repo_owner', None)
+        self.__update_gh_config_opt('gh_repo_name', None)
 
     def __build_taiga_section(self):
         config = self.config_parser
         config.add_section('taiga-config')
-        self.__update_option_in_config('taiga-config', 'us_report_api_url', None)
-        self.__update_option_in_config('taiga-config', 'task_report_api_url', None)
+        self.__update_taiga_config_opt('us_report_api_url', None)
+        self.__update_taiga_config_opt('task_report_api_url', None)
+        self.__update_taiga_config_opt('taiga_project_url', None)
 
     def __build_config_file(self):
         self.__build_taiga_section()
@@ -240,23 +246,102 @@ class DataController:
     def github_data_ready(self):
         return self.ghp.data_is_ready()
     
+    def __generate_hyperlink(self, url, text):
+        return f'=HYPERLINK("{url}", "{text}")'
+    
+    def generate_task_excel_entry(self, base_url, task_num):
+        if task_num is not None:
+            text = f'Task-{int(task_num)}'
+            if base_url is not None and base_url != '':
+                url = f'{base_url}/task/{int(task_num)}'
+                return self.__generate_hyperlink(url, text)      
+            return text
+        return None
+    
+    def generate_us_entry(self, us_num):
+        if not pd.isna(us_num):
+            return f'US-{int(us_num)}'
+        return 'Storyless'
+    
+    def format_wsr_excel(self, df: Type[pd.DataFrame]):
+        base_url = self.get_taiga_project_url()
+        df['task'] = df['task'].apply(lambda x: self.generate_task_excel_entry(base_url, x))
+        df['user_story'] = df['user_story'].apply(lambda x: self.generate_us_entry(x))
+        return df
+    
+    def format_wsr_non_excel(self, df: Type[pd.DataFrame]):
+        members_df = df['assigned_to'].copy(deep=True)
+        members_df.dropna(how='all', inplace=True)
+        members_df = members_df.drop_duplicates(keep='first').reset_index(drop=True)
+        members = members_df.tolist()
+
+        num_mems = len(members)
+
+        data_columns = ['sprint', 'user_story', 'points', 'task', 'coding']
+        data_columns.extend(members)
+
+        data = [None] * len(df)
+        for index, row in df.iterrows():
+            us_num = row['user_story']
+            task_num = row['task']
+            assigned = row['assigned_to']
+
+            sprint = row['sprint']
+            user_story = int(us_num) if not pd.isna(us_num) else None
+            points = int(row['points'])
+            task = int(task_num) if task_num is not None else None
+            coding = row['coding']
+
+            mem_data = [None] * num_mems
+            i = 0
+            for mem in members:
+                mem_data[i] = "100%" if assigned == mem else None
+                i += 1
+
+            row_data = [sprint, user_story, points, task, coding]
+            row_data.extend(mem_data)
+            data[index] = row_data
+            
+        result_df = pd.DataFrame(data, columns=data_columns)
+        return result_df
+    
+    
+    
+    def get_taiga_project_url(self):
+        return self.__get_config_opt_val('taiga-config', 'taiga_project_url')
+    
+    def set_taiga_project_url(self, project_url):
+        self.__update_taiga_config_opt('taiga_project_url', project_url)
+
+    def check_url_exists(self, url):
+        res = requests.get(url)
+
+        if res.status_code >= 200 and res.status_code < 300:
+            return True
+        return False
+    
     ## Raw Data Storage/Loading
     ##=============================================================================
 
-    def __create_new_wb(self, filename, sheets):
+    def __create_new_wb(self, filename, sheets=None):
         if os.path.exists(filename):
             os.remove(filename)
         
         wb = opyxl.Workbook()
         wb.create_sheet("Master")
 
-        for contributor in sheets:
-            wb.create_sheet(contributor)
+        if sheets is not None:
+            for sheet in sheets:
+                wb.create_sheet(sheets)
 
         for sheet in wb.sheetnames:
-            if sheet not in self.contributor_list and sheet != "Master":
-                del wb[sheet]
-
+            if sheets is not None:
+                if sheet not in sheets and sheet != 'Master':
+                    del wb[sheet]
+            else:
+                if sheet != 'Master':
+                    del wb[sheet]
+            
         wb.save(filename)
         wb.close()
 
@@ -274,6 +359,16 @@ class DataController:
                 os.makedirs(curr_dir_level)
 
         df.to_csv(filepath, index=False)
+
+    def write_to_excel(self, filepath, df, header_filter=None, sheets=None, sheet_headers=None):
+        self.__create_new_wb(filepath, sheets)
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            self.__parsed_data_to_spreadsheet(df, writer, 'Master')
+
+            if sheets is not None:
+                for sheet in sheets:
+                    sheet_df = df[df[header_filter == sheet]][sheet_headers]
+                    self.__parsed_data_to_spreadsheet(sheet_df, writer, sheet)
 
     def __load_from_csv(self, filepath) -> pd.DataFrame | None:
         df = None
@@ -308,34 +403,6 @@ class DataController:
 
     def store_raw_github_data(self, df):
         self.write_to_csv('./raw_data/raw_github_master_data.csv', df)
-
-    def write_to_excel(self, filename='./data_out/commit_data.xlsx'):
-        if 'data_out' in filename:
-            dir_name = 'data_out'
-        else:
-            dir_name = 'raw_data'
-
-        if not os.path.exists(f'./{dir_name}'):
-            os.makedirs(f'./{dir_name}')
-
-        self.__write_data(filename)
-
-    def __write_data(self, filename, excel=True):
-        if excel:
-            contributors = self.get_contributors()
-            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'az_date', 'url']]
-            commits_by_contributor = self.get_commits_by_committer_data()
-
-            self.__create_new_wb(filename, contributors)
-            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-                self.__parsed_data_to_spreadsheet(all_data, writer, 'All_Data')
-
-                for contributor in contributors:
-                    contributor_df = commits_by_contributor[contributor][['id', 'task_num', 'message', 'az_date', 'url']]
-                    self.__parsed_data_to_spreadsheet(contributor_df, writer, contributor)
-        else:
-            all_data = self.get_all_commit_data()[['id', 'task_num', 'committer', 'message', 'utc_datetime', 'az_date', 'url']]
-            all_data.to_csv(filename, index=False)
 
     def remove_file(self, filepath):
         if os.path.exists(filepath):

@@ -54,6 +54,9 @@ class GitHubFrame(ttk.Frame):
     
     def get_gh_df(self) -> pd.DataFrame:
         return self.data_frame.get_gh_data()
+    
+    def get_contributors(self) -> list:
+        return self.data_frame.get_contributors()
 
     def dialog(self, msg):
         self.DialogBox(msg)
@@ -224,7 +227,17 @@ class DataFrame(ttk.Frame):
         return self.sheet_master_df is not None
     
     def get_gh_data(self) -> pd.DataFrame:
-        return self.sheet_master_df
+        return self.sheet_master_df.copy(deep=True)
+    
+    def sheet_df_col_to_list(self, col_lbl) -> list:
+        df = self.sheet_master_df[col_lbl].copy(deep=True)
+        self.__inv_val_to_none(df)
+        df.dropna(inplace=True)
+        df = df.drop_duplicates(keep='first').reset_index(drop=True)
+        return df.tolist()
+    
+    def get_contributors(self) -> list:
+        return self.sheet_df_col_to_list('committer')
 
     def __dialog(self, msg):
         self.parent_frame.dialog(msg)

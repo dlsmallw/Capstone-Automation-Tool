@@ -266,7 +266,7 @@ class TaigaParsingController:
             sprint = row['sprint']
             sprint_start, sprint_end = self.__get_sprint_date(sprint)
 
-            user_story = int(us_num) if pd.notnull(us_num) else -1
+            user_story = int(us_num) if pd.notnull(us_num) else None
             points = int(us_row['total-points'].values[0] if pd.notnull(us_num) else 0)
             task = int(row['ref'])
             assigned = row['assigned_to'] if pd.notnull(row['assigned_to']) else 'Unassigned'
@@ -292,7 +292,7 @@ class TaigaParsingController:
             assigned = row['assigned_to']
 
             sprint = row['sprint']
-            user_story = f'US-{int(us_num)}' if us_num != -1 else 'Storyless'
+            user_story = f'US-{int(us_num)}' if us_num is not None else 'Storyless'
             points = int(row['points'])
             task = self.__make_hyperlink(task_num)
             coding = row['coding']
