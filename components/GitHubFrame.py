@@ -461,7 +461,7 @@ class DataFrame(ttk.Frame):
         formatted_df = self.__dataframe_to_table_format(df)
         formatted_df.sort_values(by='utc_datetime', inplace=True)
         sheet = tks.Sheet(self, header=list(formatted_df.columns), data=formatted_df.values.tolist())
-        sheet.enable_bindings('all', "edit_header")
+        sheet.enable_bindings('all')
         # sheet.height_and_width(height=300, width=1000)
 
         if self.col_widths is None:

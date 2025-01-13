@@ -482,7 +482,6 @@ class DataFrame(ttk.Frame):
         opt_frame.pack(pady=2)
         btn_frame.pack(pady=2)
         filters_frame.pack()
-
         return widget_frame
         
     def __build_table_btn_frame(self) -> ttk.Frame:
@@ -497,7 +496,7 @@ class DataFrame(ttk.Frame):
         formatted_df = self.__dataframe_to_table_format(df)
         formatted_df.sort_values(by='sprint_start', ascending=True, inplace=True)
         sheet = tks.Sheet(self, header=list(formatted_df.columns), data=formatted_df.values.tolist())
-        sheet.enable_bindings('all', "edit_header")
+        sheet.enable_bindings('all')
         # sheet.height_and_width(height=300, width=1000)
 
         if self.col_widths is None:
