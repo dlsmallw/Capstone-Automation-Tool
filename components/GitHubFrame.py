@@ -44,10 +44,14 @@ class GitHubFrame(ttk.Frame):
     def import_gh_data(self):
         temp_lbl = ttk.Label(self.config_frame, text='Handling GitHub API Call, Please Wait...')
         temp_lbl.pack()
-        self.dc.github_retrieve_and_parse()
-        df = self.dc.get_gh_master_df()
-        self.data_frame.build_data_display(df)
-        temp_lbl.destroy()
+        try:
+            self.dc.github_retrieve_and_parse()
+            df = self.dc.get_gh_master_df()
+            self.data_frame.build_data_display(df)
+        except:
+            self.dialog('Failed to import data')
+        finally:
+            temp_lbl.destroy()
 
     def gh_data_ready(self) -> bool:
         return self.data_frame.gh_data_ready()

@@ -48,18 +48,27 @@ class TaigaFrame(ttk.Frame):
     def import_from_files(self):
         temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga File Import Call, Please Wait...')
         temp_lbl.pack()
-        self.dc.taiga_retrieve_from_files()
-        df = self.dc.get_taiga_master_df()
-        self.data_frame.build_data_display(df)
-        temp_lbl.destroy()
+
+        try:
+            self.dc.taiga_retrieve_from_files()
+            df = self.dc.get_taiga_master_df()
+            self.data_frame.build_data_display(df)
+        except:
+            self.dialog('Failed to import data')
+        finally:
+            temp_lbl.destroy()
 
     def import_from_api(self):
         temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga API Import Call, Please Wait...')
         temp_lbl.pack()
-        self.dc.taiga_retrieve_from_api()
-        df = self.dc.get_taiga_master_df()
-        self.data_frame.build_data_display(df)
-        temp_lbl.destroy()
+        try:
+            self.dc.taiga_retrieve_from_api()
+            df = self.dc.get_taiga_master_df()
+            self.data_frame.build_data_display(df)
+        except:
+            self.dialog('Failed to import data')
+        finally:
+            temp_lbl.destroy()
 
     def taiga_data_ready(self) -> bool:
         return self.data_frame.taiga_data_ready()
