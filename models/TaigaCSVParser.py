@@ -225,7 +225,7 @@ class TaigaParsingController:
     
     def __format_task_data(self, raw_df):
         if raw_df is not None:
-            raw_df = raw_df[['id', 'ref', 'subject', 'user_story', 'sprint', 'assigned_to']]
+            raw_df = raw_df[['id', 'ref', 'is_closed', 'subject', 'user_story', 'sprint', 'assigned_to']]
             raw_df.sort_values(['sprint'], ascending=[True], inplace=True)
             self.raw_task_df = raw_df
             self.__parse_members(raw_df['assigned_to'])

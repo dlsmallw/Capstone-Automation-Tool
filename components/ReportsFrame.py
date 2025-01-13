@@ -19,7 +19,14 @@ class ReportsFrame(ttk.Frame):
     parent_frame = None
     DialogBox = None
 
-    report_type_options_frame = None
+    report_filter_container = None
+    report_filter_frame = None
+
+    loading_msg_frame = None
+
+    curr_sel = None
+    prev_sel = None
+    
 
     def __init__(self, parent_frame: Type[tk.Tk], root_app, dc: Type[DataManager.DataController]):
         super().__init__(parent_frame)
@@ -39,9 +46,56 @@ class ReportsFrame(ttk.Frame):
         options_panel.pack()
         self.preview_frame.pack(fill='both', expand=True, pady=5, anchor='n')
 
-    def reset_options_frame(self):
+    def gh_data_ready(self) -> bool:
+        return self.root_app.gh_data_ready()
+    
+    def get_gh_data(self) -> pd.DataFrame:
+        return self.root_app.get_gh_data()
+    
+    def get_contributors(self) -> list:
+        return self.root_app.get_gh_contributors()
+    
+    def taiga_data_ready(self) -> bool:
+        return self.root_app.taiga_data_ready()
+    
+    def get_taiga_data(self) -> pd.DataFrame:
+        return self.root_app.get_taiga_data()
+    
+    def get_sprints(self) -> list:
+        return self.root_app.get_taiga_sprints()
+    
+    def get_members(self) -> list:
+        return self.root_app.get_taiga_members()
+    
+    def update_valid_options(self):
+        t_data_ready = self.taiga_data_ready()
+        gh_data_ready = self.gh_data_ready()
+        self.mtr_rad_btn['state'] = self.wsr_rad_btn['state'] = 'normal' if t_data_ready else 'disabled'
+        self.mgr_rad_btn['state'] = 'normal' if gh_data_ready else 'disabled'
+        self.icr_rad_btn['state'] = 'normal' if t_data_ready and gh_data_ready else 'disabled'
+
+    def reset_tab(self):
         self.sel_rb.set(None)
-        self.report_type_options_frame.destroy()
+        self.curr_sel = self.prev_sel = None
+        self.reset_options_frame()
+        self.preview_frame.reset_frame()
+
+    def disable_report_sel(self):
+        self.mtr_rad_btn['state'] = \
+        self.wsr_rad_btn['state'] = \
+        self.mgr_rad_btn['state'] = \
+        self.icr_rad_btn['state'] = 'disabled'
+
+    def enable_report_sel(self):
+        self.sel_rb.set(None)
+        self.curr_sel = self.prev_sel = None
+        self.update_valid_options()
+
+    def reset_options_frame(self):
+        if self.report_filter_frame is not None:
+            self.report_filter_frame.destroy()
+        self.report_filter_frame = ttk.Frame(self.report_filter_container)
+        self.report_filter_frame.pack()
 
     def dialog(self, msg):
         self.DialogBox(msg)
@@ -58,40 +112,65 @@ class ReportsFrame(ttk.Frame):
         return target_obj
     
     def switch_report_type(self):
-        selection = self.sel_rb.get()
-        match selection:
-            case 'mtr':
-                self.mtr_options_frame()
-                return
-            case 'mgr':
-                self.mgr_options_frame()
-                return
-            case 'wsr':
-                self.wsr_options_frame()
-                return
-            case 'icr':
-                print(selection)
-                return
-            case _:
-                return
+        self.prev_sel = self.curr_sel
+        self.curr_sel = self.sel_rb.get()
+
+        if self.prev_sel != self.curr_sel:
+            self.reset_options_frame()
+            match self.curr_sel:
+                case 'mtr':
+                    if self.taiga_data_ready():
+                        self.temp_load_msg('Master Taiga Report')
+                        self.mtr_options_frame()
+                    return
+                case 'mgr':
+                    if self.gh_data_ready():
+                        self.temp_load_msg('Master GitHub Report')
+                        self.mgr_options_frame()
+                    return
+                case 'wsr':
+                    if self.root_app.taiga_data_ready():
+                        self.temp_load_msg('Work Summary Report')
+                        self.wsr_options_frame()
+                    return
+                case 'icr':
+                    if self.taiga_data_ready() and self.gh_data_ready():
+                        self.temp_load_msg('Individual Contributions Report')
+                        self.icr_options_frame()
+                    return
+                case _:
+                    return
+    def destroy_temp_load_msg_frame(self):
+        if self.loading_msg_frame is not None:
+            self.loading_msg_frame.destroy()
+                
+    def temp_load_msg(self, report_type):
+        self.destroy_temp_load_msg_frame()
+        self.loading_msg_frame = ttk.Frame(self.report_filter_container)
+        temp_msg = ttk.Label(self.loading_msg_frame, text=f'Loading {report_type} filter options...')
+
+        temp_msg.pack()
+        self.loading_msg_frame.pack()
 
     def generate_taiga_project_field(self, parent):
-        instruction_string = """**NOTE: The base Taiga Project URL entered is used to generate hyperlinks that link to each specified taiga task on the generated report. This is optional, but will handle the general process of generating the links for each individual task.\n\nFor setting the base url, refer to what is shown when you are at the home page for the project (the timeline page, but make sure to remove timeline from the url). i.e., https://tree.taiga.io/project/<The Project Name>.\n\nExample: With url https://tree.taiga.io/project/sundevil-awesome-sponsor-project/timeline, you would enter 'https://tree.taiga.io/project/sundevil-awesome-sponsor-project'"""
-        instruction_text_box = tk.Text(parent, wrap='word', height=9, width=800)
+        instr_str = "**NOTE: The base Taiga Project URL entered is used to generate hyperlinks that link to each specified taiga task on the generated report. "
+        instr_str += "This is optional, but will handle the general process of generating the links for each individual task."
+        instr_str += "\n\nFor setting the base url, refer to what is shown when you are at the home page for the project (the timeline page, but make sure to remove timeline from the url). i.e., https://tree.taiga.io/project/<The Project Name>."
+        instr_str += "\n     - Example: With url https://tree.taiga.io/project/sundevil-awesome-sponsor-project/timeline, you would enter"
+        instr_str += "\n     'https://tree.taiga.io/project/sundevil-awesome-sponsor-project'"
+        
+        instruction_msg = tk.Message(parent, text=instr_str, width=800, borderwidth=2, relief='ridge')
         
         field_frame = ttk.Frame(parent)
-        taiga_project_field = self.__generate_field_obj(field_frame, 'Taiga Project URL (Optional):', ttk.Entry(field_frame, width=50))
+        taiga_project_field = self.__generate_field_obj(field_frame, 'Taiga Project URL (Optional):', ttk.Entry(field_frame, width=80))
 
         default_val = self.dc.get_taiga_project_url()
         if default_val is not None and default_val != '':
             if self.dc.check_url_exists(default_val):
                 taiga_project_field.insert(0, default_val)
         
-        instruction_text_box.pack()
         field_frame.pack()
-
-        instruction_text_box.insert(tk.END, instruction_string)
-        instruction_text_box['state'] = 'disabled'
+        instruction_msg.pack()
 
         return taiga_project_field
     
@@ -113,20 +192,26 @@ class ReportsFrame(ttk.Frame):
             return df[df[name_header] == user]
         return df
     
-    def gen_mtr_report(self, from_date_field, to_date_field, user_field):
+    def gen_report_triggered(self):
+        self.reset_options_frame()
+        self.disable_report_sel()
+    
+    def gen_mtr(self, from_date_field, to_date_field, user_field):
         df = self.root_app.get_taiga_data()
         df = self.apply_from_date_filter(df, from_date_field, 'sprint_end')
         df = self.apply_to_date_filter(df, to_date_field, 'sprint_start')
         df = self.apply_name_filter(df, user_field, 'assigned_to')
         df.sort_values(by='sprint_start', ascending=True, inplace=True)
+        self.gen_report_triggered()
         self.preview_frame.generate_preview_frame(df, 'mtr')
 
-    def gen_mgr_report(self, from_date_field, to_date_field, user_field):
+    def gen_mgr(self, from_date_field, to_date_field, user_field):
         df = self.root_app.get_gh_data()
         df = self.apply_from_date_filter(df, from_date_field, 'az_date')
         df = self.apply_to_date_filter(df, to_date_field, 'az_date')
         df = self.apply_name_filter(df, user_field, 'committer')
         df.sort_values(by='utc_datetime', ascending=True, inplace=True)
+        self.gen_report_triggered()
         self.preview_frame.generate_preview_frame(df, 'mgr')
 
     def gen_wsr(self, from_date_field, to_date_field, project_url_field):
@@ -139,19 +224,36 @@ class ReportsFrame(ttk.Frame):
         df = self.apply_to_date_filter(df, to_date_field, 'sprint_end')
         df.sort_values(by='sprint_start', ascending=True, inplace=True)
         df = self.dc.format_wsr_non_excel(df)
+        self.gen_report_triggered()
         self.preview_frame.generate_preview_frame(df, 'wsr')
 
-    def mtr_options_frame(self):
-        if self.report_type_options_frame is not None:
-            self.report_type_options_frame.destroy()
+    def gen_icr(self, from_date_field, to_date_field, user_field, project_url_field):
+        print('ICR Generation')
+        base_url = project_url_field.get()
+        if base_url is not None and base_url != '':
+            self.dc.set_taiga_project_url(base_url)
 
-        self.report_type_options_frame = ttk.Frame(self.opt_frame)
-        filters_frame = ttk.Frame(self.report_type_options_frame)
+        gh_df = self.get_gh_data()
+        gh_df.sort_values(by='utc_datetime', ascending=True, inplace=True)
+
+        df = self.dc.format_icr_df_non_excel(self.get_taiga_data(), gh_df)
+        df = self.apply_from_date_filter(df, from_date_field, 'az_date')
+        df = self.apply_to_date_filter(df, to_date_field, 'az_date')
+        df = self.apply_name_filter(df, user_field, 'committer')
+        self.gen_report_triggered()
+        self.preview_frame.generate_preview_frame(df, 'icr')
+
+    def mtr_options_frame(self):
+        if self.report_filter_frame is not None:
+            self.report_filter_frame.destroy()
+
+        self.report_filter_frame = ttk.Frame(self.report_filter_container)
+        filters_frame = ttk.Frame(self.report_filter_frame)
 
         from_frame = ttk.Frame(filters_frame)
         to_frame = ttk.Frame(filters_frame)
         member_frame = ttk.Frame(filters_frame)
-        btn_frame = ttk.Frame(self.report_type_options_frame)
+        btn_frame = ttk.Frame(self.report_filter_frame)
         
         user_select_def = StringVar(member_frame)
         user_options = ['', ''] + self.root_app.get_taiga_members()
@@ -161,59 +263,63 @@ class ReportsFrame(ttk.Frame):
         to_date_entry = self.__generate_field_obj(to_frame, 'To Date:', CustomDateEntry(to_frame, width=8))
         user_filter = self.__generate_field_obj(member_frame, 'Member:', CustomOptionMenu(member_frame, user_select_def, *user_options))
 
-        gen_report_btn = ttk.Button(btn_frame, text='Generate Taiga Report', command=lambda: self.gen_mtr_report(from_date_entry, to_date_entry, user_filter))
+        gen_report_btn = ttk.Button(btn_frame, text='Generate Taiga Report', command=lambda: self.gen_mtr(from_date_entry, to_date_entry, user_filter))
         gen_report_btn.pack()
 
         from_frame.grid(row=0, column=0, padx=2, sticky='nsew')
         to_frame.grid(row=0, column=1, padx=2, sticky='nsew')
         member_frame.grid(row=0, column=2, padx=2, sticky='nsew')
         
-        filters_frame.pack()
-        btn_frame.pack()
-        self.report_type_options_frame.pack()
+        filters_frame.pack(pady=2)
+        btn_frame.pack(pady=2)
+
+        self.destroy_temp_load_msg_frame()
+        self.report_filter_frame.pack()
 
     def mgr_options_frame(self):
-        if self.report_type_options_frame is not None:
-            self.report_type_options_frame.destroy()
+        if self.report_filter_frame is not None:
+            self.report_filter_frame.destroy()
 
-        self.report_type_options_frame = ttk.Frame(self.opt_frame)
-        filters_frame = ttk.Frame(self.report_type_options_frame)
+        self.report_filter_frame = ttk.Frame(self.report_filter_container)
+        filters_frame = ttk.Frame(self.report_filter_frame)
 
         from_frame = ttk.Frame(filters_frame)
         to_frame = ttk.Frame(filters_frame)
         member_frame = ttk.Frame(filters_frame)
-        btn_frame = ttk.Frame(self.report_type_options_frame)
+        btn_frame = ttk.Frame(self.report_filter_frame)
         
         user_select_def = StringVar(member_frame)
-        user_options = ['', ''] + self.root_app.get_taiga_members()
+        user_options = ['', ''] + self.root_app.get_gh_contributors()
         user_select_def.set(user_options[0])
 
         from_date_entry = self.__generate_field_obj(from_frame, 'From Date:', CustomDateEntry(from_frame, width=8))
         to_date_entry = self.__generate_field_obj(to_frame, 'To Date:', CustomDateEntry(to_frame, width=8))
         user_filter = self.__generate_field_obj(member_frame, 'Committer:', CustomOptionMenu(member_frame, user_select_def, *user_options))
 
-        gen_report_btn = ttk.Button(btn_frame, text='Generate GitHub Report', command=lambda: self.gen_mgr_report(from_date_entry, to_date_entry, user_filter))
+        gen_report_btn = ttk.Button(btn_frame, text='Generate GitHub Report', command=lambda: self.gen_mgr(from_date_entry, to_date_entry, user_filter))
         gen_report_btn.pack()
 
         from_frame.grid(row=0, column=0, padx=2, sticky='nsew')
         to_frame.grid(row=0, column=1, padx=2, sticky='nsew')
         member_frame.grid(row=0, column=2, padx=2, sticky='nsew')
         
-        filters_frame.pack()
-        btn_frame.pack()
-        self.report_type_options_frame.pack()
+        filters_frame.pack(pady=2)
+        btn_frame.pack(pady=2)
+
+        self.destroy_temp_load_msg_frame()
+        self.report_filter_frame.pack()
 
     def wsr_options_frame(self):
-        if self.report_type_options_frame is not None:
-            self.report_type_options_frame.destroy()
+        if self.report_filter_frame is not None:
+            self.report_filter_frame.destroy()
 
-        self.report_type_options_frame = ttk.Frame(self.opt_frame)
-        filters_frame = ttk.Frame(self.report_type_options_frame)
+        self.report_filter_frame = ttk.Frame(self.report_filter_container)
+        filters_frame = ttk.Frame(self.report_filter_frame)
 
         from_frame = ttk.Frame(filters_frame)
         to_frame = ttk.Frame(filters_frame)
-        btn_frame = ttk.Frame(self.report_type_options_frame)
-        project_url_frame = ttk.Frame(self.report_type_options_frame)
+        btn_frame = ttk.Frame(self.report_filter_frame)
+        project_url_frame = ttk.Frame(self.report_filter_frame)
 
         from_date_entry = self.__generate_field_obj(from_frame, 'From Date (Sprint Start Dates Succeeding This Date):', CustomDateEntry(from_frame, width=8))
         to_date_entry = self.__generate_field_obj(to_frame, 'To Date (Sprint End Dates Preceeding This Date):', CustomDateEntry(to_frame, width=8))
@@ -226,32 +332,72 @@ class ReportsFrame(ttk.Frame):
         from_frame.grid(row=0, column=0, padx=2, sticky='nsew')
         to_frame.grid(row=0, column=1, padx=2, sticky='nsew')
         
-        filters_frame.pack()
-        project_url_frame.pack()
-        btn_frame.pack()
-        self.report_type_options_frame.pack()
+        filters_frame.pack(pady=2)
+        project_url_frame.pack(pady=4)
+        btn_frame.pack(pady=2)
+
+        self.destroy_temp_load_msg_frame()
+        self.report_filter_frame.pack()
+
+    def icr_options_frame(self):
+        if self.report_filter_frame is not None:
+            self.report_filter_frame.destroy()
+
+        self.report_filter_frame = ttk.Frame(self.report_filter_container)
+        filters_frame = ttk.Frame(self.report_filter_frame)
+
+        from_frame = ttk.Frame(filters_frame)
+        to_frame = ttk.Frame(filters_frame)
+        member_frame = ttk.Frame(filters_frame)
+
+        project_url_frame = ttk.Frame(self.report_filter_frame)
+        btn_frame = ttk.Frame(self.report_filter_frame)
+
+        user_select_def = StringVar(member_frame)
+        user_options = ['', ''] + self.root_app.get_gh_contributors()
+        user_select_def.set(user_options[0])
+
+        from_date_entry = self.__generate_field_obj(from_frame, 'From Date (Sprint Start Dates Succeeding This Date):', CustomDateEntry(from_frame, width=8))
+        to_date_entry = self.__generate_field_obj(to_frame, 'To Date (Sprint End Dates Preceeding This Date):', CustomDateEntry(to_frame, width=8))
+        user_filter = self.__generate_field_obj(member_frame, 'Committer:', CustomOptionMenu(member_frame, user_select_def, *user_options))
+
+        project_url_field = self.generate_taiga_project_field(project_url_frame)
+
+        gen_report_btn = ttk.Button(btn_frame, text='Generate Individual Contributions Report', command=lambda: self.gen_icr(from_date_entry, to_date_entry, user_filter, project_url_field))
+        gen_report_btn.pack()
+
+        from_frame.grid(row=0, column=0, padx=2, sticky='nsew')
+        to_frame.grid(row=0, column=1, padx=2, sticky='nsew')
+        member_frame.grid(row=0, column=2, padx=2, sticky='nsew')
+        
+        filters_frame.pack(pady=2)
+        project_url_frame.pack(pady=4)
+        btn_frame.pack(pady=2)
+
+        self.destroy_temp_load_msg_frame()
+        self.report_filter_frame.pack()
 
     def build_options_frame(self):
-        widget_frame = ttk.Frame(self, borderwidth=2, relief='ridge')
+        widget_frame = ttk.Frame(self)
 
-        self.opt_frame = ttk.Frame(widget_frame)
-        type_sel_frame = ttk.Frame(self.opt_frame)
+        type_sel_frame = ttk.Frame(widget_frame)
         options_lbl = ttk.Label(type_sel_frame, text='Select Report Type:')
 
         self.sel_rb = StringVar()
-        gen_taiga_report_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Master Taiga Report', value='mtr', command=self.switch_report_type)
-        gen_gh_report_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Master GitHub Report', value='mgr', command=self.switch_report_type)
-        wsr_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Work Summary Report', value='wsr', command=self.switch_report_type)
-        icr_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='IC Report', value='icr', command=self.switch_report_type)
+        self.mtr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Master Taiga Report', value='mtr', command=self.switch_report_type)
+        self.mgr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Master GitHub Report', value='mgr', command=self.switch_report_type)
+        self.wsr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Work Summary Report', value='wsr', command=self.switch_report_type)
+        self.icr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='IC Report', value='icr', command=self.switch_report_type)
 
         options_lbl.grid(row=0, column=0, sticky='nsew')
-        gen_taiga_report_btn.grid(row=0, column=1, sticky='nsew')
-        gen_gh_report_btn.grid(row=0, column=2, sticky='nsew')
-        wsr_btn.grid(row=0, column=3, sticky='nsew')
-        icr_btn.grid(row=0, column=4, sticky='nsew')
+        self.mtr_rad_btn.grid(row=0, column=1, sticky='nsew')
+        self.mgr_rad_btn.grid(row=0, column=2, sticky='nsew')
+        self.wsr_rad_btn.grid(row=0, column=3, sticky='nsew')
+        self.icr_rad_btn.grid(row=0, column=4, sticky='nsew')
 
+        self.report_filter_container = ttk.Frame(widget_frame)
         type_sel_frame.pack(pady=4, padx=5)
-        self.opt_frame.pack(pady=4, padx=5)
+        self.report_filter_container.pack(padx=5)
 
         return widget_frame
     
@@ -273,11 +419,11 @@ class ReportsFrame(ttk.Frame):
                     pass
                     return
 
-    def save_gen_taiga_report(self, df):
+    def save_mtr(self, df):
         filepath = self.save_file_prompt('General_Taiga_Report')
         self.handle_ext_type(filepath, df)
 
-    def save_gen_gh_report(self, df):
+    def save_mgr(self, df):
         filepath = self.save_file_prompt('General_GitHub_Report')
         self.handle_ext_type(filepath, df)
 
@@ -285,20 +431,25 @@ class ReportsFrame(ttk.Frame):
         df = self.dc.format_wsr_excel(df)
         filepath = self.save_file_prompt('Work_Summary_Report')
         self.handle_ext_type(filepath, df)
+
+    def save_icr(self, df):
+        df = self.dc.format_icr_excel(df)
+        filepath = self.save_file_prompt('Individual_Contributions_Report')
+        self.handle_ext_type(filepath, df)
                 
     def export_report(self, df, report_type):
         match report_type:
             case 'mtr':
-                self.save_gen_taiga_report(df)
+                self.save_mtr(df)
                 return
             case 'mgr':
-                self.save_gen_gh_report(df)
+                self.save_mgr(df)
                 return
             case 'wsr':
                 self.save_wsr(df)
                 return
             case 'icr':
-                
+                self.save_icr(df)
                 return
             case _:
                 return
@@ -311,20 +462,10 @@ class ReportsFrame(ttk.Frame):
         filepath = filedialog.asksaveasfilename(initialfile=filename, filetypes=files, defaultextension=files)
         return filepath
 
-    def generate_work_summary_report(self):
-        data_ready = self.root_app.taiga_data_ready()
-
-        if not data_ready:
-            self.dialog('There is no Taiga data to generate the report from!')
-            return
-        
-        taiga_df = self.root_app.get_taiga_data()
-        wsr_df = self.dc.format_df_for_work_summary_report(taiga_df)
-        
-
     class DataPreviewFrame(ttk.Frame):
+        table_frame = None
         sheet = None
-        export_btn = None
+        
         col_widths = None
         report_type = None
 
@@ -349,7 +490,7 @@ class ReportsFrame(ttk.Frame):
             if val == -1 or pd.isna(val):
                 return 'Storyless'
             else:
-                return f'US-{val}'
+                return f'US-{int(val)}'
             
         def __us_col_data_prep(self, val):
             if val == -1 or pd.isna(val):
@@ -378,10 +519,10 @@ class ReportsFrame(ttk.Frame):
                 df['task'] = df['task'].apply(lambda x: self.__task_col_data_prep(x))
             return df
         
-        def build_table(self, df):
+        def build_table(self, parent, df):
             self.master_df = self.__process_df(df)
             table_formatted_df = self.__dataframe_to_table_format(df)
-            sheet = tks.Sheet(self, header=list(table_formatted_df.columns), data=table_formatted_df.values.tolist())
+            sheet = tks.Sheet(parent, header=list(table_formatted_df.columns), data=table_formatted_df.values.tolist())
 
             if self.col_widths is None:
                 column_widths = []
@@ -396,6 +537,10 @@ class ReportsFrame(ttk.Frame):
                         text_width = 80
                     elif column == 'url':
                         text_width = 210
+                    elif column == 'task_url':
+                        text_width = 220
+                    elif column == 'commit_url':
+                        text_width = 220
 
                     column_widths.append(text_width)
                     index += 1
@@ -405,11 +550,14 @@ class ReportsFrame(ttk.Frame):
             sheet.set_column_widths(self.col_widths)
             return sheet
         
-        def __reset_frame(self):
-            if self.sheet is not None:
-                self.sheet.destroy()
-            if self.export_btn is not None:
-                self.export_btn.destroy()
+        def return_to_report_selection(self):
+            self.reset_frame()
+            self.parent.enable_report_sel()
+        
+        def reset_frame(self):
+            if self.table_frame is not None:
+                self.table_frame.destroy()
+            
             if self.col_widths is not None:
                 self.col_widths = None
             if self.report_type is not None:
@@ -417,16 +565,43 @@ class ReportsFrame(ttk.Frame):
 
         def export_report(self, df):
             self.parent.export_report(df, self.report_type)
-            self.__reset_frame()
+            self.return_to_report_selection()
+
+        def generate_title(self, report_type):
+            match report_type:
+                case 'mtr':
+                    return 'Master Taiga Report Preview'
+                case 'mgr':
+                    return 'Master GitHub Report Preview'
+                case 'wsr':
+                    return 'Work Summary Report Preview'
+                case 'icr':
+                    return 'Individual Contributions Report Preview'
+                case _:
+                    return 'Report Preview'
 
         def generate_preview_frame(self, df, report_type):
-            self.__reset_frame()
+            self.reset_frame()
 
             self.report_type = report_type
-            self.sheet = self.build_table(df)
-            self.export_btn = ttk.Button(self, text='Export Report', command=lambda: self.export_report(df))
+            self.table_frame = ttk.Frame(self)
 
-            self.export_btn.pack()
+            lbl_frame = ttk.Frame(self.table_frame, borderwidth=2, relief='ridge')
+            table_lbl = ttk.Label(lbl_frame, text=self.generate_title(report_type), font=('Arial', 15))
+            table_lbl.pack(pady=2)
+
+            btn_frame = ttk.Frame(self.table_frame)
+            export_btn = ttk.Button(btn_frame, text='Export Report', command=lambda: self.export_report(df))
+            cancel_btn = ttk.Button(btn_frame, text='Cancel Export', command=self.return_to_report_selection)
+            export_btn.grid(row=0, column=0, padx=2)
+            cancel_btn.grid(row=0, column=1, padx=2)
+
+            self.sheet = self.build_table(self.table_frame, df)
+
+            lbl_frame.pack(fill='x')
+            btn_frame.pack(pady=4)
             self.sheet.pack(fill='both', expand=True, pady=(0, 5))
+
+            self.table_frame.pack(fill='both', expand=True)
 
             

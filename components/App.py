@@ -7,6 +7,8 @@ from components import HomeFrame, TaigaFrame, GitHubFrame, ReportsFrame
 
 class Application():
     root = None
+    curr_tab = None
+    prev_tab = None
 
     def __init__(self):
         dc = DataManager.DataController()
@@ -34,6 +36,8 @@ class Application():
         self.tabControl.add(self.reports_tab, text='Reports')
         self.tabControl.pack(expand = 1, fill ="both") 
 
+        self.tabControl.bind('<<NotebookTabChanged>>', self.tab_change)
+
         self.root.mainloop()
 
     def close(self):
@@ -42,6 +46,15 @@ class Application():
     def refresh(self):
         self.root.update()
         self.root.after(1000,self.refresh)
+
+    def tab_change(self, event):
+        self.prev_tab = self.curr_tab
+        self.curr_tab = event.widget.tab('current')['text']
+        
+        if self.curr_tab == 'Reports':
+            self.reports_tab.update_valid_options()
+        elif self.prev_tab == 'Reports':
+            self.reports_tab.reset_tab()
 
     def taiga_data_ready(self) -> bool:
         return self.taiga_tab.taiga_data_ready()

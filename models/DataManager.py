@@ -60,7 +60,7 @@ class DataController:
 
     def __get_config_opt_val(self, section, opt):
         config = self.config_parser
-        return config.get(section, opt)
+        return config.get(section, opt, fallback=None)
 
     def __build_gh_section(self):
         config = self.config_parser
@@ -249,9 +249,12 @@ class DataController:
     def __generate_hyperlink(self, url, text):
         return f'=HYPERLINK("{url}", "{text}")'
     
-    def generate_task_excel_entry(self, base_url, task_num):
+    def generate_task_excel_entry(self, base_url, task_num, text_to_use=None):
         if task_num is not None:
-            text = f'Task-{int(task_num)}'
+            if text_to_use is not None:
+                text = text_to_use
+            else:
+                text = f'Task-{int(task_num)}'
             if base_url is not None and base_url != '':
                 url = f'{base_url}/task/{int(task_num)}'
                 return self.__generate_hyperlink(url, text)      
@@ -305,7 +308,42 @@ class DataController:
         result_df = pd.DataFrame(data, columns=data_columns)
         return result_df
     
+    def format_icr_df_non_excel(self, t_df: Type[pd.DataFrame], gh_df: Type[pd.DataFrame]) -> pd.DataFrame:
+        base_url = self.get_taiga_project_url()
+        raw_task_df = self.tp.get_raw_task_data()
+
+        data_columns = ['committer', 'task_url', 'task', 'task_status', 'coding', 'commit_url', 'commit_date', 'Percent_contributed']
+        data = [None] * len(gh_df)
+        for index, row in gh_df.iterrows():
+            
+            committer = row['committer']
+            task_num = row['task']
+            if not pd.isna(task_num):
+                task_url = f'{base_url}/task/{int(task_num)}' if base_url is not None else None
+                task = int(task_num) 
+
+                is_complete = raw_task_df.loc[raw_task_df['ref'] == task_num, 'is_closed'].iloc[0]
+                task_status = 'Complete' if is_complete else 'In-Process'
+                coding = t_df.loc[t_df['task'] == task_num, 'coding'].iloc[0]
+            else:
+                task_url = None
+                task = None
+                coding = None
+                task_status = None
+
+            commit_url = row['url']
+            commit_date = row['az_date']
+
+            row_data = [committer, task_url, task, task_status, coding, commit_url, commit_date, None]
+            data[index] = row_data
+            
+        result_df = pd.DataFrame(data, columns=data_columns)
+        return result_df
     
+    def format_icr_excel(self, df: Type[pd.DataFrame]):
+        df['task_url'] = df['task_url'].apply(lambda url: self.__generate_hyperlink(url, 'Taiga Task Link'))
+        df['commit_url'] = df['commit_url'].apply(lambda url: self.__generate_hyperlink(url, 'Link to GitHub Commit'))
+        return df
     
     def get_taiga_project_url(self):
         return self.__get_config_opt_val('taiga-config', 'taiga_project_url')
