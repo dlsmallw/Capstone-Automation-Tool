@@ -60,6 +60,7 @@ class TaigaFrame(ttk.Frame):
     def import_from_api(self):
         temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga API Import Call, Please Wait...')
         temp_lbl.pack()
+
         try:
             self.dc.taiga_retrieve_from_api()
             df = self.dc.get_taiga_master_df()

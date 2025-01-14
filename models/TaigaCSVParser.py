@@ -234,15 +234,18 @@ class TaigaParsingController:
         start = self.sprints_df[self.sprints_df['sprint'] == sprint]['sprint_estimated_start']
         end = self.sprints_df[self.sprints_df['sprint'] == sprint]['sprint_estimated_finish']
         
-        start_date = self.__extract_date(start).date()
-        end_date = self.__extract_date(end).date()
+        start = self.__extract_date(start)
+        end = self.__extract_date(end)
 
-        return start_date.strftime('%m/%d/%Y'), end_date.strftime('%m/%d/%Y')
+        start_date = start.strftime('%m/%d/%Y') if start is not None else None
+        end_date = end.strftime('%m/%d/%Y') if end is not None else None
+
+        return start_date, end_date
 
     def __extract_date(self, date_obj) -> pd.Timestamp | None:
         idx_obj = date_obj.values
         raw_val = idx_obj[0] if len(idx_obj) > 0 else None
-        return pd.to_datetime(raw_val, format='%Y-%m-%d') if raw_val is not None else None
+        return pd.to_datetime(raw_val, format='%Y-%m-%d').date() if raw_val is not None else None
 
     def __format_and_centralize_data(self):
         data_columns = ['sprint', 'sprint_start', 'sprint_end', 'user_story', 'points', 'task', 'assigned_to', 'coding', 'subject']
