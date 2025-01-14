@@ -72,7 +72,7 @@ class ReportsFrame(ttk.Frame):
         gh_data_ready = self.gh_data_ready()
         self.mtr_rad_btn['state'] = self.wsr_rad_btn['state'] = 'normal' if t_data_ready else 'disabled'
         self.mgr_rad_btn['state'] = 'normal' if gh_data_ready else 'disabled'
-        self.icr_rad_btn['state'] = 'normal' if t_data_ready and gh_data_ready else 'disabled'
+        self.icr_rad_btn['state'] = 'normal' if gh_data_ready else 'disabled'
 
     def reset_tab(self):
         self.sel_rb.set(None)
@@ -134,7 +134,7 @@ class ReportsFrame(ttk.Frame):
                         self.wsr_options_frame()
                     return
                 case 'icr':
-                    if self.taiga_data_ready() and self.gh_data_ready():
+                    if self.gh_data_ready():
                         self.temp_load_msg('Individual Contributions Report')
                         self.icr_options_frame()
                     return
@@ -228,15 +228,15 @@ class ReportsFrame(ttk.Frame):
         self.preview_frame.generate_preview_frame(df, 'wsr')
 
     def gen_icr(self, from_date_field, to_date_field, user_field, project_url_field):
-        print('ICR Generation')
         base_url = project_url_field.get()
         if base_url is not None and base_url != '':
             self.dc.set_taiga_project_url(base_url)
 
         gh_df = self.get_gh_data()
         gh_df.sort_values(by='utc_datetime', ascending=True, inplace=True)
+        t_df = self.get_taiga_data() if self.taiga_data_ready() else None
 
-        df = self.dc.format_icr_df_non_excel(self.get_taiga_data(), gh_df)
+        df = self.dc.format_icr_df_non_excel(gh_df, t_df)
         df = self.apply_from_date_filter(df, from_date_field, 'az_date')
         df = self.apply_to_date_filter(df, to_date_field, 'az_date')
         df = self.apply_name_filter(df, user_field, 'committer')

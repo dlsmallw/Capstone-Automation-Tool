@@ -308,7 +308,7 @@ class DataController:
         result_df = pd.DataFrame(data, columns=data_columns)
         return result_df
     
-    def format_icr_df_non_excel(self, t_df: Type[pd.DataFrame], gh_df: Type[pd.DataFrame]) -> pd.DataFrame:
+    def format_icr_df_non_excel(self, gh_df: Type[pd.DataFrame], t_df: Type[pd.DataFrame] = None) -> pd.DataFrame:
         base_url = self.get_taiga_project_url()
         raw_task_df = self.tp.get_raw_task_data()
 
@@ -321,10 +321,9 @@ class DataController:
             if not pd.isna(task_num):
                 task_url = f'{base_url}/task/{int(task_num)}' if base_url is not None else None
                 task = int(task_num) 
-
-                is_complete = raw_task_df.loc[raw_task_df['ref'] == task_num, 'is_closed'].iloc[0]
-                task_status = 'Complete' if is_complete else 'In-Process'
-                coding = t_df.loc[t_df['task'] == task_num, 'coding'].iloc[0]
+                is_complete = raw_task_df.loc[raw_task_df['ref'] == task_num, 'is_closed'].iloc[0] if raw_task_df is not None else None
+                task_status = 'Complete' if is_complete else 'In-Process' if raw_task_df is not None else None
+                coding = t_df.loc[t_df['task'] == task_num, 'coding'].iloc[0] if t_df is not None else None
             else:
                 task_url = None
                 task = None
