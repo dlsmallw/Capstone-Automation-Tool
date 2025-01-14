@@ -26,3 +26,17 @@ rebuild() {
     clean
     build
 }
+
+package() {
+    if [ -d ./dist ]; 
+    then 
+        rm -rf ./dist
+    fi
+
+    if [ -d ./build ]; 
+    then 
+        rm -rf ./build
+    fi
+
+    pyinstaller --onefile -w main.py -n CapstoneDataAutomationTool
+}
