@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 import requests
 import datetime
-import openpyxl as opyxl
 import pytz
 import re
 
@@ -27,10 +26,7 @@ class GitHubParsingController:
 
     api_ref_validated = False
     auth_verified = False
-    
     data_ready = False
-
-    
 
     def __init__(self, username, token, owner, repo):
         self.set_gh_auth(username, token)
@@ -305,7 +301,6 @@ class GitHubParsingController:
 
         for branch in self.get_branches():
             branch_sha = self.branch_list[branch]
-
             if since:
                 url = f'{self.gh_base_url}/repos/{owner}/{repo}/commits?since={since}&per_page=100&sha={branch_sha}'
             else:
@@ -317,7 +312,6 @@ class GitHubParsingController:
                 all_data = branch_commits
             else:
                 all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset=['id'], keep='last').reset_index(drop=True)
-
         self.set_commit_data(all_data)
     
     def set_commit_data(self, all_data):
@@ -372,56 +366,3 @@ class GitHubParsingController:
         self.api_ref_validated = False
         self.auth_verified = False
         self.data_ready = False
-
-    ## File Writing
-    ##=============================================================================
-            
-    def __create_new_wb(self, filename, sheets):
-        if os.path.exists(filename):
-            os.remove(filename)
-        
-        wb = opyxl.Workbook()
-        wb.create_sheet("All_Data")
-
-        for contributor in sheets:
-            wb.create_sheet(contributor)
-
-        for sheet in wb.sheetnames:
-            if sheet not in self.contributor_list and sheet != "All_Data":
-                del wb[sheet]
-
-        wb.save(filename)
-        wb.close()
-
-    def __parsed_data_to_spreadsheet(self, df, writer, sheet):
-        df.to_excel(writer, sheet_name=sheet, index=False)
-   
-    
-
-    def write_to_excel(self, filename='./data_out/commit_data.xlsx'):
-        if 'data_out' in filename:
-            dir_name = 'data_out'
-        else:
-            dir_name = 'raw_data'
-
-        if not os.path.exists(f'./{dir_name}'):
-            os.makedirs(f'./{dir_name}')
-
-        self.__write_data(filename)
-
-    def __write_data(self, filename, excel=True):
-        if excel:
-            contributors = self.get_contributors()
-            all_data = self.get_all_commit_data()[['id', 'task', 'committer', 'message', 'az_date', 'url']]
-            commits_by_contributor = self.get_commits_by_committer_data()
-
-            self.__create_new_wb(filename, contributors)
-            with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-                self.__parsed_data_to_spreadsheet(all_data, writer, 'All_Data')
-
-                for contributor in contributors:
-                    contributor_df = commits_by_contributor[contributor][['id', 'task', 'message', 'az_date', 'url']]
-                    self.__parsed_data_to_spreadsheet(contributor_df, writer, contributor)
-        else:
-            all_data = self.get_all_commit_data()[['id', 'task', 'committer', 'message', 'utc_datetime', 'az_date', 'url']]
-            all_data.to_csv(filename, index=False)

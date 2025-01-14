@@ -24,7 +24,6 @@ class Application():
         self.root.maxsize(1000, 800)
 
         self.tabControl = ttk.Notebook(self.root)
-
         self.home_tab = HomeFrame.HomeFrame(self.tabControl)
         self.taiga_tab = TaigaFrame.TaigaFrame(self.tabControl, dc)
         self.gh_tab = GitHubFrame.GitHubFrame(self.tabControl, dc)
@@ -37,7 +36,6 @@ class Application():
         self.tabControl.pack(expand = 1, fill ="both") 
 
         self.tabControl.bind('<<NotebookTabChanged>>', self.tab_change)
-
         self.root.mainloop()
 
     def close(self):

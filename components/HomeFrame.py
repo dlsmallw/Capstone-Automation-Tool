@@ -34,7 +34,9 @@ class HomeFrame(ttk.Frame):
         taiga_txt = "On the Taiga tab, users can import data by file or by using the Taiga api:"
         taiga_txt += "\n        1.) Importing by files ('From File' tab): After downloading the User Story and Task csv files from the 'Reports' page in the Taiga project's settings, the user can select the filepath to these two files and then import the Taiga data and display it in the tab."
         taiga_txt += "\n        2.) Importing by API ('From API' tab): The user can find the api urls for retrieving the User Story and Task csv data from the same 'Reports' page in the Taiga project settings. Then the user can enter these within the application and import the Taiga data and display it in the tab."
+        taiga_txt += "\n        **NOTE: You will need to coordinate with the Taiga project owner to request these items, since the settings page is only accessible by members with admin/owner privileges."
         taiga_txt += "\n\nOnce the data is imported the user can modify the data as they need to (disclaimer: The application isn't designed to handle non-typical data formats for these fields, so be careful about what is entered when editting the data). Be sure to hit the 'Save Current Table' button when you want to keep the current data, otherwise, you will lose any changes you have made."
+        
         taiga_use_block = tk.Message(taiga_use_frame, width=600, text=taiga_txt)
         taiga_use_lbl.pack()
         taiga_use_block.pack()

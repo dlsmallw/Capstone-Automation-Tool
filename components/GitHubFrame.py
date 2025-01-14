@@ -7,9 +7,8 @@ import pandas as pd
 import numpy as np
 import threading
 
-from components import DialogWindow
-
 from models import DataManager
+from components import DialogWindow
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
 class GitHubFrame(ttk.Frame):
@@ -69,6 +68,7 @@ class GitHubFrame(ttk.Frame):
         win = self.DialogBox(msg, True)
         self.root.wait_window(win.top)
         return win.result
+    
 class ConfigFrame(ttk.Frame):
     parent_frame = None
 
@@ -242,9 +242,6 @@ class DataFrame(ttk.Frame):
     
     def get_contributors(self) -> list:
         return self.sheet_df_col_to_list('committer')
-
-    def __dialog(self, msg):
-        self.parent_frame.dialog(msg)
 
     def __destroy_frames(self):
         if self.filter_panel is not None:

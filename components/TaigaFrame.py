@@ -7,9 +7,8 @@ import pandas as pd
 import numpy as np
 import threading
 
-from components import DialogWindow
-
 from models import DataManager
+from components import DialogWindow
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
 class TaigaFrame(ttk.Frame):

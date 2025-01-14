@@ -5,14 +5,11 @@ import tksheet as tks
 from typing import Type
 import pandas as pd
 import numpy as np
-import threading
 import os
 
-from components import DialogWindow
-
 from models import DataManager
+from components import DialogWindow
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
-from components import App
 
 class ReportsFrame(ttk.Frame):
     root_app = None

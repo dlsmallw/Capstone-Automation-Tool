@@ -102,6 +102,97 @@ class DataController:
         self.__update_gh_config_opt('gh_repo_owner', None)
         self.__update_gh_config_opt('gh_repo_name', None)
 
+    ## GH/Taiga Raw Data saving/loading
+    ##=============================================================================
+
+    def __load_raw_data(self):
+        self.tp.load_raw_data(self.__load_from_csv('./raw_data/raw_taiga_master_data.csv'), 
+                              self.__load_from_csv('./raw_data/raw_taiga_us_data.csv'), 
+                              self.__load_from_csv('./raw_data/raw_taiga_task_data.csv'))
+
+        self.ghp.load_raw_data(self.__load_from_csv('./raw_data/raw_github_master_data.csv'))
+
+    def store_raw_taiga_data(self):
+        raw_master_df = self.tp.get_master_df()
+        raw_us_df = self.tp.get_raw_us_data()
+        raw_task_df = self.tp.get_raw_task_data()
+
+        if raw_master_df is not None:
+            self.write_to_csv('./raw_data/raw_taiga_master_data.csv', raw_master_df)
+
+        if raw_us_df is not None:
+            self.write_to_csv('./raw_data/raw_taiga_us_data.csv', raw_us_df)
+
+        if raw_task_df is not None:
+            self.write_to_csv('./raw_data/raw_taiga_task_data.csv', raw_task_df)
+
+    def store_raw_github_data(self, df):
+        self.write_to_csv('./raw_data/raw_github_master_data.csv', df)
+
+    ## Data File reading/writing
+    ##=============================================================================
+
+    def __create_new_wb(self, filename, sheets=None):
+        if os.path.exists(filename):
+            os.remove(filename)
+        
+        wb = opyxl.Workbook()
+        wb.create_sheet("Master")
+
+        if sheets is not None:
+            for sheet in sheets:
+                wb.create_sheet(sheets)
+
+        for sheet in wb.sheetnames:
+            if sheets is not None:
+                if sheet not in sheets and sheet != 'Master':
+                    del wb[sheet]
+            else:
+                if sheet != 'Master':
+                    del wb[sheet]
+            
+        wb.save(filename)
+        wb.close()
+
+    def __parsed_data_to_spreadsheet(self, df, writer, sheet):
+        df.to_excel(writer, sheet_name=sheet, index=False)
+
+    def write_to_csv(self, filepath: Type[str], df: Type[pd.DataFrame]):
+        subdirectories = filepath.replace('.', '').split('/')
+        curr_dir_level = '.'
+        for i in range(len(subdirectories) - 1):
+            dir = subdirectories[i]
+            curr_dir_level += f'/{dir}'
+
+            if not os.path.exists(curr_dir_level):
+                os.makedirs(curr_dir_level)
+
+        df.to_csv(filepath, index=False)
+
+    def write_to_excel(self, filepath, df, header_filter=None, sheets=None, sheet_headers=None):
+        self.__create_new_wb(filepath, sheets)
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            self.__parsed_data_to_spreadsheet(df, writer, 'Master')
+
+            if sheets is not None:
+                for sheet in sheets:
+                    sheet_df = df[df[header_filter == sheet]][sheet_headers]
+                    self.__parsed_data_to_spreadsheet(sheet_df, writer, sheet)
+
+    def __load_from_csv(self, filepath) -> pd.DataFrame | None:
+        df = None
+        if os.path.exists(filepath):
+            print(f' > Loading data from {filepath}')
+            df = pd.read_csv(filepath)
+            df.replace(['', 'None', 'nan', 'NaN'], [None, None, None, None], inplace=True)
+        else:
+            print(f' > File {filepath} does not exist')
+        return df
+    
+    def remove_file(self, filepath):
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
     ## GH/Taiga Controller Management
     ##=============================================================================
 
@@ -246,6 +337,22 @@ class DataController:
     def github_data_ready(self):
         return self.ghp.data_is_ready()
     
+    def get_taiga_project_url(self):
+        return self.__get_config_opt_val('taiga-config', 'taiga_project_url')
+    
+    def set_taiga_project_url(self, project_url):
+        self.__update_taiga_config_opt('taiga_project_url', project_url)
+
+    def check_url_exists(self, url):
+        res = requests.get(url)
+
+        if res.status_code >= 200 and res.status_code < 300:
+            return True
+        return False
+    
+    ## Data Formatting for Reports
+    ##=============================================================================
+    
     def __generate_hyperlink(self, url, text):
         return f'=HYPERLINK("{url}", "{text}")'
     
@@ -344,104 +451,4 @@ class DataController:
         df['commit_url'] = df['commit_url'].apply(lambda url: self.__generate_hyperlink(url, 'Link to GitHub Commit'))
         return df
     
-    def get_taiga_project_url(self):
-        return self.__get_config_opt_val('taiga-config', 'taiga_project_url')
     
-    def set_taiga_project_url(self, project_url):
-        self.__update_taiga_config_opt('taiga_project_url', project_url)
-
-    def check_url_exists(self, url):
-        res = requests.get(url)
-
-        if res.status_code >= 200 and res.status_code < 300:
-            return True
-        return False
-    
-    ## Raw Data Storage/Loading
-    ##=============================================================================
-
-    def __create_new_wb(self, filename, sheets=None):
-        if os.path.exists(filename):
-            os.remove(filename)
-        
-        wb = opyxl.Workbook()
-        wb.create_sheet("Master")
-
-        if sheets is not None:
-            for sheet in sheets:
-                wb.create_sheet(sheets)
-
-        for sheet in wb.sheetnames:
-            if sheets is not None:
-                if sheet not in sheets and sheet != 'Master':
-                    del wb[sheet]
-            else:
-                if sheet != 'Master':
-                    del wb[sheet]
-            
-        wb.save(filename)
-        wb.close()
-
-    def __parsed_data_to_spreadsheet(self, df, writer, sheet):
-        df.to_excel(writer, sheet_name=sheet, index=False)
-
-    def write_to_csv(self, filepath: Type[str], df: Type[pd.DataFrame]):
-        subdirectories = filepath.replace('.', '').split('/')
-        curr_dir_level = '.'
-        for i in range(len(subdirectories) - 1):
-            dir = subdirectories[i]
-            curr_dir_level += f'/{dir}'
-
-            if not os.path.exists(curr_dir_level):
-                os.makedirs(curr_dir_level)
-
-        df.to_csv(filepath, index=False)
-
-    def write_to_excel(self, filepath, df, header_filter=None, sheets=None, sheet_headers=None):
-        self.__create_new_wb(filepath, sheets)
-        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            self.__parsed_data_to_spreadsheet(df, writer, 'Master')
-
-            if sheets is not None:
-                for sheet in sheets:
-                    sheet_df = df[df[header_filter == sheet]][sheet_headers]
-                    self.__parsed_data_to_spreadsheet(sheet_df, writer, sheet)
-
-    def __load_from_csv(self, filepath) -> pd.DataFrame | None:
-        df = None
-        if os.path.exists(filepath):
-            print(f' > Loading data from {filepath}')
-            df = pd.read_csv(filepath)
-            df.replace(['', 'None', 'nan', 'NaN'], [None, None, None, None], inplace=True)
-        else:
-            print(f' > File {filepath} does not exist')
-        return df
-    
-    def __load_raw_data(self):
-        self.tp.load_raw_data(self.__load_from_csv('./raw_data/raw_taiga_master_data.csv'), 
-                              self.__load_from_csv('./raw_data/raw_taiga_us_data.csv'), 
-                              self.__load_from_csv('./raw_data/raw_taiga_task_data.csv'))
-
-        self.ghp.load_raw_data(self.__load_from_csv('./raw_data/raw_github_master_data.csv'))
-
-    def store_raw_taiga_data(self):
-        raw_master_df = self.tp.get_master_df()
-        raw_us_df = self.tp.get_raw_us_data()
-        raw_task_df = self.tp.get_raw_task_data()
-
-        if raw_master_df is not None:
-            self.write_to_csv('./raw_data/raw_taiga_master_data.csv', raw_master_df)
-
-        if raw_us_df is not None:
-            self.write_to_csv('./raw_data/raw_taiga_us_data.csv', raw_us_df)
-
-        if raw_task_df is not None:
-            self.write_to_csv('./raw_data/raw_taiga_task_data.csv', raw_task_df)
-
-    def store_raw_github_data(self, df):
-        self.write_to_csv('./raw_data/raw_github_master_data.csv', df)
-
-    def remove_file(self, filepath):
-        if os.path.exists(filepath):
-            os.remove(filepath)
-

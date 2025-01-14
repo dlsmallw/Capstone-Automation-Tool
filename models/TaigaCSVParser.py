@@ -6,7 +6,6 @@ import numpy as np
 import openpyxl as opyxl
 import requests
 
-
 class TaigaParsingController:
     us_report_url = None
     task_report_url = None
@@ -21,7 +20,6 @@ class TaigaParsingController:
     raw_us_df = None
     raw_task_df = None
     formatted_master_df = None
-
     data_ready = False
     
     def __init__(self, us_url, task_url):
@@ -212,7 +210,7 @@ class TaigaParsingController:
     def get_sprints(self):
         return self.sprints_df['sprint'].tolist()
     
-    ## Data preparation
+    ## Data preparation and retrieval
     ##=============================================================================
     
     def __format_us_data(self, raw_df):
@@ -231,10 +229,6 @@ class TaigaParsingController:
             self.__parse_members(raw_df['assigned_to'])
             return True
         return False
-
-    def __make_hyperlink(self, task_num):
-        base_url = 'https://tree.taiga.io/project/dlsmallw-group-8-asu-capstone-natural-language-processing-for-decolonizing-harm-reduction-literature/task/{}'
-        return '=HYPERLINK("%s", "Task-%s")' % (base_url.format(task_num), task_num)
     
     def __get_sprint_date(self, sprint):
         start = self.sprints_df[self.sprints_df['sprint'] == sprint]['sprint_estimated_start']
@@ -277,78 +271,6 @@ class TaigaParsingController:
             all_data[index] = data_row
 
         self.set_master_df(pd.DataFrame(all_data, columns=data_columns))
-
-    def __format_df_for_excel(self, df):
-        members = self.get_members()
-        num_mems = len(members)
-
-        data_columns = ['sprint', 'user_story', 'points', 'task', 'coding']
-        data_columns.extend(members)
-
-        data = [None] * len(df)
-        for index, row in df.iterrows():
-            us_num = row['user_story']
-            task_num = row['task']
-            assigned = row['assigned_to']
-
-            sprint = row['sprint']
-            user_story = f'US-{int(us_num)}' if us_num is not None else 'Storyless'
-            points = int(row['points'])
-            task = self.__make_hyperlink(task_num)
-            coding = row['coding']
-
-            mem_data = [None] * num_mems
-            i = 0
-            for mem in members:
-                mem_data[i] = "100%" if assigned == mem else None
-                i += 1
-
-            row_data = [sprint, user_story, points, task, coding]
-            row_data.extend(mem_data)
-            data[index] = row_data
-            
-        result_df = pd.DataFrame(data, columns=data_columns)
-        return result_df
-    
-
-    
-    ## File Writing
-    ##=============================================================================
-
-    def __create_new_wb(self, filename):
-        if (os.path.exists(filename)):
-            os.remove(filename)
-        
-        wb = opyxl.Workbook()
-        wb.create_sheet("All_Data")
-
-        sprints = self.get_sprints()
-
-        for sprint in sprints:
-            wb.create_sheet(sprint)
-
-        for sheet in wb.sheetnames:
-            if sheet not in sprints and sheet != "All_Data":
-                del wb[sheet]
-
-        wb.save(filename)
-
-    def __parsed_data_to_spreadsheet(self, df, writer, sheet):
-        df.to_excel(writer, sheet_name=sheet)
-
-    def write_data(self, filename):
-        sprints = self.get_sprints()
-        self.__create_new_wb(filename, sprints)
-
-        with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-            master_df = self.get_master_df()
-            self.__parsed_data_to_spreadsheet(self.__format_df_for_excel(master_df), writer, "All_Data")
-            
-            for sprint in sprints:
-                sprint_df = master_df.loc[master_df['sprint'] == sprint]
-                self.__parsed_data_to_spreadsheet(
-                    self.__format_df_for_excel(sprint_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])), 
-                    writer, sprint)
                 
     def get_master_df(self):
         return self.formatted_master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])
