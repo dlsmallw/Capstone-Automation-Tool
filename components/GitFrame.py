@@ -11,7 +11,7 @@ from models import DataManager
 from components import DialogWindow
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
-class GitHubFrame(ttk.Frame):
+class GitFrame(ttk.Frame):
     root = None
     parent_frame = None
     DialogBox = None
@@ -43,20 +43,52 @@ class GitHubFrame(ttk.Frame):
     def import_gh_data(self):
         temp_lbl = ttk.Label(self.config_frame, text='Handling GitHub API Call, Please Wait...')
         temp_lbl.pack()
+
         try:
-            self.dc.github_retrieve_and_parse()
-            df = self.dc.get_gh_master_df()
-            self.data_frame.build_data_display(df)
+            if self.dc.validate_gh_auth():
+                if self.dc.validate_gh_repo():
+
+                    self.dc.make_gh_api_call()
+                    df = self.dc.get_git_master_df()
+                    self.data_frame.build_data_display(df)
+                    
+                else:
+                    self.dialog('The specified repo does not exist')
+            else:
+                self.dialog('The token is invalid')
         except:
             self.dialog('Failed to import data')
         finally:
             temp_lbl.destroy()
 
+    def import_gl_data(self):
+        temp_lbl = ttk.Label(self.config_frame, text='Handling GitLab API Call, Please Wait...')
+        temp_lbl.pack()
+
+        try:
+            if self.dc.validate_gh_auth():
+                if self.dc.validate_gh_repo():
+
+                    self.dc.make_gh_api_call()
+                    df = self.dc.get_git_master_df()
+                    self.data_frame.build_data_display(df)
+                    
+                else:
+                    self.dialog('The specified repo does not exist')
+            else:
+                self.dialog('The token is invalid')
+        except:
+            self.dialog('Failed to import data')
+        finally:
+            temp_lbl.destroy()
+
+        
+
     def gh_data_ready(self) -> bool:
-        return self.data_frame.gh_data_ready()
+        return self.data_frame.commit_data_ready()
     
     def get_gh_df(self) -> pd.DataFrame:
-        return self.data_frame.get_gh_data()
+        return self.data_frame.get_commit_data()
     
     def get_contributors(self) -> list:
         return self.data_frame.get_contributors()
@@ -72,17 +104,22 @@ class GitHubFrame(ttk.Frame):
 class ConfigFrame(ttk.Frame):
     parent_frame = None
 
-    def __init__(self, parent: Type[GitHubFrame], dc: Type[DataManager.DataController]):
+    def __init__(self, parent: Type[GitFrame], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.parent_frame = parent
+
+        # tabControl = ttk.Notebook(self.parent_frame)
+
+        # github_tab = ttk.Frame(tabControl)
+        # gitlab_tab = ttk.Frame(tabControl)
+
 
         config_frame = self.__build_config_frame(self)
         config_frame.pack(padx=8, pady=8)
 
     def __check_all_fields_set(self):
-        fields = pd.DataFrame(data=[self.username_field['text'], self.token_field['text'], 
-                  self.owner_field['text'], self.repo_field['text']], columns=['field'])
+        fields = pd.DataFrame(data=[self.token_field['text'], self.owner_field['text'], self.repo_field['text']], columns=['field'])
         
         fields.replace(to_replace=['', 'Not Set', None], value=[None, None, None], inplace=True)
         for val in fields['field'].tolist():
@@ -153,8 +190,8 @@ class ConfigFrame(ttk.Frame):
             btn_obj.grid(row=row, column=2, padx=4, pady=(0, 4))
 
         return target_obj
-
-    def __build_config_frame(self, parent) -> ttk.Frame:
+    
+    def __build_github_tab(self, parent) -> ttk.Frame:
         widget_frame = ttk.Frame(parent)
         options_frame = ttk.Frame(widget_frame)
         btn_frame = ttk.Frame(widget_frame)
@@ -197,8 +234,107 @@ class ConfigFrame(ttk.Frame):
 
         self.__set_field(self.username_field, self.dc.get_gh_username())
         self.__set_field(self.token_field, self.dc.get_gh_token())
-        self.__set_field(self.owner_field, self.dc.get_repo_owner())
-        self.__set_field(self.repo_field, self.dc.get_repo_name())
+        self.__set_field(self.owner_field, self.dc.get_gh_repo_owner())
+        self.__set_field(self.repo_field, self.dc.get_gh_repo_name())
+
+        auth_section_frame.grid(row=1, column=0, pady=(0, 8), sticky='nsew')
+        repo_section_frame.grid(row=1, column=1, pady=(0, 8), sticky='nsew')
+        options_frame.pack(fill='x')
+        btn_frame.pack()
+
+        return widget_frame
+    
+    def __build_gitlab_tab(self, parent) -> ttk.Frame:
+        widget_frame = ttk.Frame(parent)
+        options_frame = ttk.Frame(widget_frame)
+        btn_frame = ttk.Frame(widget_frame)
+        auth_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
+        repo_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
+
+        auth_section_lbl = tk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        auth_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
+        self.username_field = self.__generate_field_obj(auth_section_frame, 
+                                                            1, 
+                                                            'Username:', 
+                                                            9, 
+                                                            tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                            tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_username(self.username_field), anchor='e', padx=3))
+        self.token_field = self.__generate_field_obj(auth_section_frame, 
+                                                        2, 
+                                                        'Token:', 
+                                                        9, 
+                                                        tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                        tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field), anchor='e', padx=3))
+        
+        repo_section_lbl = tk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        repo_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
+        self.owner_field = self.__generate_field_obj(repo_section_frame, 
+                                                        1, 
+                                                        'Repo Owner:', 
+                                                        10, 
+                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field), anchor='e', padx=3))
+        self.repo_field = self.__generate_field_obj(repo_section_frame, 
+                                                        2, 
+                                                        'Repo Name:', 
+                                                        10, 
+                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field), anchor='e', padx=3))
+        
+        # Buttons for importing and exporting data
+        self.import_gh_data_btn = tk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
+        self.import_gh_data_btn.grid(row=0, column=0, padx=2, sticky='nsew')
+
+        self.__set_field(self.username_field, self.dc.get_gh_username())
+        self.__set_field(self.token_field, self.dc.get_gh_token())
+        self.__set_field(self.owner_field, self.dc.get_gh_repo_owner())
+        self.__set_field(self.repo_field, self.dc.get_gh_repo_name())
+
+        auth_section_frame.grid(row=1, column=0, pady=(0, 8), sticky='nsew')
+        repo_section_frame.grid(row=1, column=1, pady=(0, 8), sticky='nsew')
+        options_frame.pack(fill='x')
+        btn_frame.pack()
+
+        return widget_frame
+
+    def __build_config_frame(self, parent) -> ttk.Frame:
+        widget_frame = ttk.Frame(parent)
+        options_frame = ttk.Frame(widget_frame)
+        btn_frame = ttk.Frame(widget_frame)
+        auth_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
+        repo_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
+
+        auth_section_lbl = tk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        auth_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
+        self.token_field = self.__generate_field_obj(auth_section_frame, 
+                                                        2, 
+                                                        'Token:', 
+                                                        9, 
+                                                        tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                        tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field), anchor='e', padx=3))
+        
+        repo_section_lbl = tk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        repo_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
+        self.owner_field = self.__generate_field_obj(repo_section_frame, 
+                                                        1, 
+                                                        'Repo Owner:', 
+                                                        10, 
+                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field), anchor='e', padx=3))
+        self.repo_field = self.__generate_field_obj(repo_section_frame, 
+                                                        2, 
+                                                        'Repo Name:', 
+                                                        10, 
+                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field), anchor='e', padx=3))
+        
+        # Buttons for importing and exporting data
+        self.import_gh_data_btn = tk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
+        self.import_gh_data_btn.grid(row=0, column=0, padx=2, sticky='nsew')
+
+        self.__set_field(self.token_field, self.dc.get_gh_token())
+        self.__set_field(self.owner_field, self.dc.get_gh_repo_owner())
+        self.__set_field(self.repo_field, self.dc.get_gh_repo_name())
 
         auth_section_frame.grid(row=1, column=0, pady=(0, 8), sticky='nsew')
         repo_section_frame.grid(row=1, column=1, pady=(0, 8), sticky='nsew')
@@ -208,7 +344,7 @@ class ConfigFrame(ttk.Frame):
         return widget_frame
 
 class DataFrame(ttk.Frame):
-    parent_frame : Type[GitHubFrame] = None
+    parent_frame : Type[GitFrame] = None
     filter_panel : Type[ttk.Frame] = None
     btn_frame : Type[ttk.Frame] = None
     sheet : Type[tks.Sheet] = None
@@ -217,20 +353,20 @@ class DataFrame(ttk.Frame):
 
     col_widths = None
 
-    def __init__(self, parent: Type[GitHubFrame], dc: Type[DataManager.DataController]):
+    def __init__(self, parent: Type[GitFrame], dc: Type[DataManager.DataController]):
         super().__init__(parent)
         self.dc = dc
         self.parent_frame = parent
 
-        data_ready = self.dc.github_data_ready()
+        data_ready = self.dc.git_data_ready()
         if data_ready:
-            self.master_df = self.dc.get_gh_master_df()
+            self.master_df = self.dc.get_git_master_df()
             self.build_data_display(self.master_df)
 
-    def gh_data_ready(self) -> bool:
+    def commit_data_ready(self) -> bool:
         return self.sheet_master_df is not None
     
-    def get_gh_data(self) -> pd.DataFrame:
+    def get_commit_data(self) -> pd.DataFrame:
         return self.sheet_master_df.copy(deep=True)
     
     def sheet_df_col_to_list(self, col_lbl) -> list:
@@ -329,11 +465,11 @@ class DataFrame(ttk.Frame):
         df = self.__parse_table_data_to_df()
         self.sheet_master_df = df.sort_values(by='utc_datetime', ascending=True)
         self.master_df = self.sheet_master_df
-        self.dc.set_gh_master_df(self.master_df)
-        self.dc.store_raw_github_data(self.master_df)
+        self.dc.set_git_master_df(self.master_df)
+        self.dc.store_raw_git_data(self.master_df)
 
     def __clear_data(self):
-        self.dc.clear_gh_data()
+        self.dc.clear_git_commit_data()
         self.master_df = None
         self.sheet_master_df = None
         self.__destroy_frames()
@@ -406,11 +542,11 @@ class DataFrame(ttk.Frame):
         btn_frame = ttk.Frame(filters_frame)
 
         task_select_def = StringVar(opt_frame)
-        task_options = ['', 'Unknown'] + self.dc.get_tasks()
+        task_options = ['', 'Unknown'] + self.dc.get_tasks_from_git_data()
         task_select_def.set(task_options[0])
 
         committer_select_def = StringVar(opt_frame)
-        committer_options = ['', 'Unknown'] + self.dc.get_contributors()
+        committer_options = ['', 'Unknown'] + self.dc.get_git_contributors()
         committer_select_def.set(committer_options[0])
 
         # Date Filters
