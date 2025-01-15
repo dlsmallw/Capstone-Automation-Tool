@@ -428,11 +428,13 @@ class ReportsFrame(ttk.Frame):
         df = self.dc.format_wsr_excel(df)
         filepath = self.save_file_prompt('Work_Summary_Report')
         self.handle_ext_type(filepath, df)
+        self.dc.convert_hyperlinks(filepath)
 
     def save_icr(self, df):
         df = self.dc.format_icr_excel(df)
         filepath = self.save_file_prompt('Individual_Contributions_Report')
         self.handle_ext_type(filepath, df)
+        self.dc.convert_hyperlinks(filepath)
                 
     def export_report(self, df, report_type):
         match report_type:

@@ -1,9 +1,10 @@
 import configparser
 import os
+
 import openpyxl as opyxl
 import pandas as pd
 from typing import Type
-from models import TaigaCSVParser, GitHubCommitParser
+from models import GitCommitParser, TaigaCSVParser
 import requests
 
 class DataController:
@@ -11,7 +12,7 @@ class DataController:
     config_parser = None
 
     tp = None
-    ghp = None
+    gp = None
 
     gh_auth_verified = False
     gh_repo_verified = False
@@ -23,18 +24,17 @@ class DataController:
     ## Config Management
     ##=============================================================================
 
-    def __load_gh_config(self):
+    def __load_gp_config(self):
         config = self.config_parser
 
         if config.has_section('github-config'):
-            gh_username = config.get('github-config', 'gh_username')
             gh_token = config.get('github-config', 'gh_token')
             repo_owner = config.get('github-config', 'gh_repo_owner')
             repo_name = config.get('github-config', 'gh_repo_name')
 
-            self.ghp = GitHubCommitParser.GitHubParsingController(gh_username, gh_token, repo_owner, repo_name)
+            self.gp = GitCommitParser.GitParsingController(config, gh_token, repo_owner, repo_name)
         else:
-            self.__build_gh_section()
+            self.__build_gp_section()
 
     def __load_taiga_config(self):
         config = self.config_parser
@@ -55,20 +55,26 @@ class DataController:
             self.__build_config_file()
             
         self.config_parser.read(self.config_fp)         
-        self.__load_gh_config()
+        self.__load_gp_config()
         self.__load_taiga_config()
 
     def __get_config_opt_val(self, section, opt):
         config = self.config_parser
         return config.get(section, opt, fallback=None)
 
-    def __build_gh_section(self):
+    def __build_gp_section(self):
         config = self.config_parser
+
         config.add_section('github-config')
-        self.__update_gh_config_opt('gh_username', None)
         self.__update_gh_config_opt('gh_token', None)
         self.__update_gh_config_opt('gh_repo_owner', None)
         self.__update_gh_config_opt('gh_repo_name', None)
+        self.__update_gh_config_opt('gh_latest_commit_date', None)
+
+        config.add_section('gitlab-config')
+        self.__update_gl_config_opt('gl_token', None)
+        self.__update_gl_config_opt('gl_project_id', None)
+        self.__update_gl_config_opt('gl_latest_commit_date', None)
 
     def __build_taiga_section(self):
         config = self.config_parser
@@ -79,10 +85,13 @@ class DataController:
 
     def __build_config_file(self):
         self.__build_taiga_section()
-        self.__build_gh_section()
+        self.__build_gp_section()
 
     def __update_gh_config_opt(self, option, value):
         self.__update_option_in_config('github-config', option, value)
+
+    def __update_gl_config_opt(self, option, value):
+        self.__update_option_in_config('gitlab-config', option, value)
 
     def __update_taiga_config_opt(self, option, value):
         self.__update_option_in_config('taiga-config', option, value)
@@ -97,10 +106,15 @@ class DataController:
     def clear_config(self):
         self.__update_taiga_config_opt('us_report_api_url', None)
         self.__update_taiga_config_opt('task_report_api_url', None)
-        self.__update_gh_config_opt('gh_username', None)
+
         self.__update_gh_config_opt('gh_token', None)
         self.__update_gh_config_opt('gh_repo_owner', None)
         self.__update_gh_config_opt('gh_repo_name', None)
+        self.__update_gh_config_opt('gh_latest_commit_date', None)
+
+        self.__update_gl_config_opt('gl_token', None)
+        self.__update_gl_config_opt('gl_project_id', None)
+        self.__update_gl_config_opt('gl_latest_commit_date', None)
 
     ## GH/Taiga Raw Data saving/loading
     ##=============================================================================
@@ -110,7 +124,7 @@ class DataController:
                               self.__load_from_csv('./raw_data/raw_taiga_us_data.csv'), 
                               self.__load_from_csv('./raw_data/raw_taiga_task_data.csv'))
 
-        self.ghp.load_raw_data(self.__load_from_csv('./raw_data/raw_github_master_data.csv'))
+        self.gp.load_raw_data(self.__load_from_csv('./raw_data/raw_git_master_data.csv'))
 
     def store_raw_taiga_data(self):
         raw_master_df = self.tp.get_master_df()
@@ -126,8 +140,8 @@ class DataController:
         if raw_task_df is not None:
             self.write_to_csv('./raw_data/raw_taiga_task_data.csv', raw_task_df)
 
-    def store_raw_github_data(self, df):
-        self.write_to_csv('./raw_data/raw_github_master_data.csv', df)
+    def store_raw_git_data(self, df):
+        self.write_to_csv('./raw_data/raw_git_master_data.csv', df)
 
     ## Data File reading/writing
     ##=============================================================================
@@ -193,66 +207,55 @@ class DataController:
         if os.path.exists(filepath):
             os.remove(filepath)
 
-    ## GH/Taiga Controller Management
+    ## GitHub Controller Management
     ##=============================================================================
 
+    def validate_gh_auth(self):
+        return self.gp.gh_auth_validated()
+    
+    def validate_gh_repo(self):
+        return self.gp.gh_repo_validated()
+
     def set_gh_auth(self, username, token):
-        if self.ghp.set_gh_auth(username, token):
-            self.gh_auth_verified = self.ghp.auth_validated()
+        if self.gp.set_gh_auth(username, token):
+            self.gh_auth_verified = self.gp.auth_validated()
             self.__update_gh_config_opt('gh_username', username)
             self.__update_gh_config_opt('gh_token', token)
-    
-    def set_gh_username(self, username):
-        success = self.ghp.set_gh_username(username)
-        if success:
-            self.__update_gh_config_opt('gh_username', username)
-            token = self.ghp.get_token()
-            if self.ghp.validate_token(token):
-                self.gh_auth_verified = self.ghp.set_gh_auth(username, token)
-        return success
-
-    def get_gh_username(self):
-        return self.ghp.get_username()
     
     def set_gh_token(self, token):
-        success = self.ghp.set_gh_token(token)
+        success = self.gp.set_gh_token(token)
         if success:
             self.__update_gh_config_opt('gh_token', token)
-            username = self.ghp.get_username()
-            if self.ghp.validate_username(username):
-                self.gh_auth_verified = self.ghp.set_gh_auth(username, token)
+            self.gh_auth_verified = self.gp.gh_auth_validated()
         return success
     
     def get_gh_token(self):
-        return self.ghp.get_token()
-    
-    def set_gh_repo_details(self, owner, repo):
-        if self.ghp.set_repo_details(owner, repo):
-            self.gh_repo_verified = self.ghp.repo_validated()
-            self.__update_gh_config_opt('gh_repo_owner', owner)
-            self.__update_gh_config_opt('gh_repo_name', repo)
+        return self.gp.get_gh_token()
 
     def set_gh_owner(self, owner):
-        success = self.ghp.set_repo_owner_username(owner)
+        success = self.gp.set_gh_repo_owner(owner)
         if success:
             self.__update_gh_config_opt('gh_repo_owner', owner)
-            self.gh_repo_verified = self.ghp.validate_repo_exists()
+            self.gh_repo_verified = self.gp.gh_repo_validated()
         return success
             
-
-    def get_repo_owner(self):
-        return self.ghp.get_repo_owner()
+    def get_gh_repo_owner(self):
+        return self.gp.get_gh_repo_owner()
     
     def set_gh_repo(self, repo):
-        success = self.ghp.set_repo_name(repo)
+        success = self.gp.set_gh_repo_name(repo)
         if success:
             self.__update_gh_config_opt('gh_repo_name', repo)
-            self.gh_repo_verified = self.ghp.validate_repo_exists()
+            self.gh_repo_verified = self.gp.gh_repo_validated()
         return success
 
-    def get_repo_name(self):
-        return self.ghp.get_repo_name()
+    def get_gh_repo_name(self):
+        return self.gp.get_gh_repo_name()
     
+   
+    ## Taiga Controller Management
+    ##=============================================================================
+
     def set_taiga_us_api_url(self, url):
         self.tp.set_us_report_url(url)
         self.__update_taiga_config_opt('us_report_api_url', url)
@@ -282,8 +285,8 @@ class DataController:
     ## API calling
     ##=============================================================================
 
-    def github_retrieve_and_parse(self):
-        self.ghp.retrieve_and_parse_commit_data()
+    def make_gh_api_call(self):
+        self.gp.retrieve_gh_commit_data()
 
     def taiga_retrieve_from_api(self):
         self.tp.retrieve_data_by_api()
@@ -306,24 +309,24 @@ class DataController:
     def get_taiga_master_df(self):
         return self.tp.get_master_df()
     
-    def get_gh_master_df(self) -> pd.DataFrame:
-        return self.ghp.get_all_commit_data()
+    def get_git_master_df(self) -> pd.DataFrame:
+        return self.gp.get_current_commit_data()
     
-    def get_tasks(self):
-        return self.ghp.get_tasks_list()
+    def get_tasks_from_git_data(self):
+        return self.gp.get_tasks()
     
-    def get_contributors(self):
-        return self.ghp.get_contributors()
+    def get_git_contributors(self):
+        return self.gp.get_contributors()
     
-    def set_gh_master_df(self, df):
-        self.ghp.set_commit_data(df)
+    def set_git_master_df(self, df):
+        self.gp.set_commit_data(df)
     
     def set_taiga_master_df(self, df):
         self.tp.set_master_df(df)
 
-    def clear_gh_data(self):
-        self.ghp.clear_data()
-        self.remove_file('./raw_data/raw_github_master_data.csv')
+    def clear_git_commit_data(self):
+        self.gp.clear_data()
+        self.remove_file('./raw_data/raw_git_master_data.csv')
 
     def clear_taiga_data(self):
         self.tp.clear_data()
@@ -334,8 +337,8 @@ class DataController:
     def taiga_data_ready(self):
         return self.tp.data_is_ready()
     
-    def github_data_ready(self):
-        return self.ghp.data_is_ready()
+    def git_data_ready(self):
+        return self.gp.data_is_ready()
     
     def get_taiga_project_url(self):
         return self.__get_config_opt_val('taiga-config', 'taiga_project_url')
@@ -350,11 +353,44 @@ class DataController:
             return True
         return False
     
+    def convert_hyperlinks(self, filepath):
+        if not os.path.exists(filepath):
+            return
+        
+        try:
+            wb = opyxl.load_workbook(filepath)
+            for sheet in wb.worksheets:  # Iterate over all sheets
+                for row in sheet.iter_rows():
+                    for cell in row:
+                        if isinstance(cell.value, str) and cell.value.startswith('=HYPERLINK('):
+                            try:
+                                # Extract URL from the formula
+                                url_start = cell.value.find('"') + 1
+                                url_end = cell.value.find('"', url_start)
+                                url = cell.value[url_start:url_end] if url_start > 0 and url_end > url_start else ""
+
+                                # Extract Friendly Text (if available)
+                                text_start = cell.value.find('"', url_end + 1) + 1
+                                text_end = cell.value.find('"', text_start)
+                                friendly_text = cell.value[text_start:text_end] if text_start > 0 and text_end > text_start else url
+
+                                # Set the hyperlink in the cell
+                                cell.value = friendly_text  # Display text
+                                cell.hyperlink = url  # Set hyperlink
+                                cell.style = "Hyperlink"  # Apply Excel hyperlink style
+
+                            except Exception as e:
+                                print(f"Error processing cell {cell.coordinate}: {e}")
+                # Save changes
+                wb.save(filepath)
+        except:
+            pass
+    
     ## Data Formatting for Reports
     ##=============================================================================
     
     def __generate_hyperlink(self, url, text):
-        return f'=HYPERLINK("{url}", "{text}")'
+        return f'=HYPERLINK("{url}", "{text}")' if url is not None else None
     
     def generate_task_excel_entry(self, base_url, task_num, text_to_use=None):
         if task_num is not None:
@@ -415,13 +451,13 @@ class DataController:
         result_df = pd.DataFrame(data, columns=data_columns)
         return result_df
     
-    def format_icr_df_non_excel(self, gh_df: Type[pd.DataFrame], t_df: Type[pd.DataFrame] = None) -> pd.DataFrame:
+    def format_icr_df_non_excel(self, commit_df: Type[pd.DataFrame], taiga_df: Type[pd.DataFrame] = None) -> pd.DataFrame:
         base_url = self.get_taiga_project_url()
         raw_task_df = self.tp.get_raw_task_data()
 
         data_columns = ['committer', 'task_url', 'task', 'task_status', 'coding', 'commit_url', 'commit_date', 'Percent_contributed']
-        data = [None] * len(gh_df)
-        for index, row in gh_df.iterrows():
+        data = [None] * len(commit_df)
+        for index, row in commit_df.iterrows():
             
             committer = row['committer']
             task_num = row['task']
@@ -430,7 +466,7 @@ class DataController:
                 task = int(task_num) 
                 is_complete = raw_task_df.loc[raw_task_df['ref'] == task_num, 'is_closed'].iloc[0] if raw_task_df is not None else None
                 task_status = 'Complete' if is_complete else 'In-Process' if raw_task_df is not None else None
-                coding = t_df.loc[t_df['task'] == task_num, 'coding'].iloc[0] if t_df is not None else None
+                coding = taiga_df.loc[taiga_df['task'] == task_num, 'coding'].iloc[0] if taiga_df is not None else None
             else:
                 task_url = None
                 task = None
@@ -448,7 +484,7 @@ class DataController:
     
     def format_icr_excel(self, df: Type[pd.DataFrame]):
         df['task_url'] = df['task_url'].apply(lambda url: self.__generate_hyperlink(url, 'Taiga Task Link'))
-        df['commit_url'] = df['commit_url'].apply(lambda url: self.__generate_hyperlink(url, 'Link to GitHub Commit'))
+        df['commit_url'] = df['commit_url'].apply(lambda url: self.__generate_hyperlink(url, 'Link to Commit'))
         return df
     
     

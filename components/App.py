@@ -3,7 +3,7 @@ from tkinter import ttk
 import pandas as pd
 
 from models import DataManager
-from components import HomeFrame, TaigaFrame, GitHubFrame, ReportsFrame
+from components import GitFrame, HomeFrame, TaigaFrame, ReportsFrame
 
 class Application():
     root = None
@@ -26,12 +26,12 @@ class Application():
         self.tabControl = ttk.Notebook(self.root)
         self.home_tab = HomeFrame.HomeFrame(self.tabControl)
         self.taiga_tab = TaigaFrame.TaigaFrame(self.tabControl, dc)
-        self.gh_tab = GitHubFrame.GitHubFrame(self.tabControl, dc)
+        self.git_tab = GitFrame.GitFrame(self.tabControl, dc)
         self.reports_tab = ReportsFrame.ReportsFrame(self.tabControl, self, dc)
 
         self.tabControl.add(self.home_tab, text='Home')
         self.tabControl.add(self.taiga_tab, text='Taiga')
-        self.tabControl.add(self.gh_tab, text='GitHub')
+        self.tabControl.add(self.git_tab, text='Git')
         self.tabControl.add(self.reports_tab, text='Reports')
         self.tabControl.pack(expand = 1, fill ="both") 
 
@@ -61,10 +61,10 @@ class Application():
         return self.taiga_tab.get_taiga_df()
     
     def gh_data_ready(self) -> bool:
-        return self.gh_tab.gh_data_ready()
+        return self.git_tab.gh_data_ready()
     
     def get_gh_data(self) -> pd.DataFrame:
-        return self.gh_tab.get_gh_df()
+        return self.git_tab.get_gh_df()
     
     def get_taiga_members(self) -> list:
         return self.taiga_tab.get_members()
@@ -73,4 +73,4 @@ class Application():
         return self.taiga_tab.get_sprints()
     
     def get_gh_contributors(self) -> list:
-        return self.gh_tab.get_contributors()
+        return self.git_tab.get_contributors()
