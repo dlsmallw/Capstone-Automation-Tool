@@ -508,12 +508,12 @@
         },
         "tksheet": {
             "hashes": [
-                "sha256:5bfbcaa899e4565430b39ffed5591dbaab20ae027bcb73f96e8cb76df72bd776",
-                "sha256:cb211a688c9b706bdbca187945798c561f7c9fedb5e25d9a400d51675400e8be"
+                "sha256:bf178755cde50a0418c47c57e77c43bb19bbefe1479f5b2e49f983e54cd08210",
+                "sha256:ff538ff2467eea8915634ba1c9986aeaa76599d82fa1f0253b4a370ae6b22d92"
             ],
             "index": "pypi",
             "markers": "python_version >= '3.8'",
-            "version": "==7.3.0"
+            "version": "==7.3.1"
         },
         "typing-extensions": {
             "hashes": [

@@ -411,7 +411,6 @@ class ReportsFrame(ttk.Frame):
                     self.dc.write_to_csv(filepath, df)
                     self.dialog('Report Exported!')
                     self.reset_options_frame()
-                    return
                 case _:
                     pass
                     return
@@ -453,7 +452,6 @@ class ReportsFrame(ttk.Frame):
             case _:
                 return
         
-    
     def save_file_prompt(self, filename):
         files = [('Excel Workbook', '*.xlsx'),
                  ('CSV (Comma delimited)', '*.csv')]
@@ -471,6 +469,11 @@ class ReportsFrame(ttk.Frame):
         def __init__(self, parent):
             super().__init__(parent)
             self.parent = parent
+
+        def dialog(self, msg):
+            self.parent
+            self.parent.dialog(msg)
+            
 
         def __task_col_table_conversion(self, val):
             if pd.isna(val):
@@ -563,8 +566,11 @@ class ReportsFrame(ttk.Frame):
                 self.report_type = None
 
         def export_report(self, df):
-            self.parent.export_report(df, self.report_type)
-            self.return_to_report_selection()
+            try:
+                self.parent.export_report(df, self.report_type)
+                self.return_to_report_selection()
+            except:
+                self.dialog('Failed to export the report. Validate that the file is closed')
 
         def generate_title(self, report_type):
             match report_type:
@@ -590,7 +596,7 @@ class ReportsFrame(ttk.Frame):
             table_lbl.pack(pady=2)
 
             btn_frame = ttk.Frame(self.table_frame)
-            export_btn = ttk.Button(btn_frame, text='Export Report', command=lambda: self.export_report(df))
+            export_btn = ttk.Button(btn_frame, text='Export Report', command=lambda: self.export_report(df.copy(deep=True)))
             cancel_btn = ttk.Button(btn_frame, text='Cancel Export', command=self.return_to_report_selection)
             export_btn.grid(row=0, column=0, padx=2)
             cancel_btn.grid(row=0, column=1, padx=2)

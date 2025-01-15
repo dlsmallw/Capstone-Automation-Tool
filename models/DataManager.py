@@ -3,6 +3,7 @@ import os
 
 import openpyxl as opyxl
 import pandas as pd
+import numpy as np
 from typing import Type
 from models import GitCommitParser, TaigaCSVParser
 import requests
@@ -23,6 +24,13 @@ class DataController:
 
     ## Config Management
     ##=============================================================================
+
+    def __conv_inv_val_to_none(self, val):
+        invalid_values = ['', 'None', 'none', 'NaN', 'nan', np.nan, None]
+
+        if val in invalid_values:
+            return None
+        return val
 
     def __load_gp_config(self):
         config = self.config_parser
@@ -347,11 +355,13 @@ class DataController:
         self.__update_taiga_config_opt('taiga_project_url', project_url)
 
     def check_url_exists(self, url):
-        res = requests.get(url)
-
-        if res.status_code >= 200 and res.status_code < 300:
-            return True
-        return False
+        try:
+            res = requests.get(url)
+            if res.status_code >= 200 and res.status_code < 300:
+                return True
+            return False
+        except:
+            return False
     
     def convert_hyperlinks(self, filepath):
         if not os.path.exists(filepath):
@@ -369,15 +379,18 @@ class DataController:
                                 url_end = cell.value.find('"', url_start)
                                 url = cell.value[url_start:url_end] if url_start > 0 and url_end > url_start else ""
 
-                                # Extract Friendly Text (if available)
-                                text_start = cell.value.find('"', url_end + 1) + 1
-                                text_end = cell.value.find('"', text_start)
-                                friendly_text = cell.value[text_start:text_end] if text_start > 0 and text_end > text_start else url
+                                url = self.__conv_inv_val_to_none(url)
 
-                                # Set the hyperlink in the cell
-                                cell.value = friendly_text  # Display text
-                                cell.hyperlink = url  # Set hyperlink
-                                cell.style = "Hyperlink"  # Apply Excel hyperlink style
+                                if url is not None and url != None:
+                                    # Extract Friendly Text (if available)
+                                    text_start = cell.value.find('"', url_end + 1) + 1
+                                    text_end = cell.value.find('"', text_start)
+                                    friendly_text = cell.value[text_start:text_end] if text_start > 0 and text_end > text_start else url
+
+                                    # Set the hyperlink in the cell
+                                    cell.value = friendly_text  # Display text
+                                    cell.hyperlink = url  # Set hyperlink
+                                    cell.style = "Hyperlink"  # Apply Excel hyperlink style
 
                             except Exception as e:
                                 print(f"Error processing cell {cell.coordinate}: {e}")
