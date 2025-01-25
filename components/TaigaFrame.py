@@ -1,18 +1,19 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, StringVar
+from tkinter import ttk, filedialog, StringVar, messagebox, Tk
 import tksheet as tks
 
 from typing import Type
 import pandas as pd
 import numpy as np
 import threading
+import requests
 
 from models import DataManager
 from components import DialogWindow
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
 class TaigaFrame(ttk.Frame):
-    root = None
+    root : Type[Tk] = None
     parent_frame = None
     DialogBox = None
 
@@ -89,77 +90,375 @@ class TaigaFrame(ttk.Frame):
         win = self.DialogBox(msg, True)
         self.root.wait_window(win.top)
         return win.result
+    
+    
 
 class ConfigFrame(ttk.Frame):
-    def __init__(self, parent: Type[TaigaFrame], dc: Type[DataManager.DataController]):
+    def __init__(self, parent: TaigaFrame, dc: DataManager.DataController):
         super().__init__(parent)
         self.dc = dc
         self.parent_frame = parent
         self.notebook = ttk.Notebook(self)
 
-        file_tab = ttk.Frame(self.notebook)
-        file_sel_widget = self.__build_file_sel_widget(file_tab)
-        file_sel_widget.pack(padx=8, pady=8, fill='x')
         api_tab = ttk.Frame(self.notebook)
-        api_form_widget = self.__build_api_form(api_tab)
-        api_form_widget.pack(fill='x', padx=8, pady=8)
+        api_tab_widget = self._build_api_form(api_tab)
+        api_tab_widget.pack(fill='x', padx=8, pady=8)
 
-        self.notebook.add(file_tab, text='From File')
-        self.notebook.add(api_tab, text='From API')
+        csv_links_tab = ttk.Frame(self.notebook)
+        csv_links_widget = self._build_csv_links_form(csv_links_tab)
+        csv_links_widget.pack(fill='x', padx=8, pady=8)
+
+        file_tab = ttk.Frame(self.notebook)
+        file_sel_widget = self._build_file_form(file_tab)
+        file_sel_widget.pack(fill='x', padx=8, pady=8)
+
+        self.notebook.add(api_tab, text='By API')
+        self.notebook.add(csv_links_tab, text='By CSV URLs')
+        self.notebook.add(file_tab, text='By CSV Files')
         self.notebook.pack()
 
-    def __generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
+    def prompt_for_entry(self, prompt_title, prompt_text, callback, params):
+        prompt_window = tk.Toplevel()
+        prompt_window.title(prompt_title)
+        prompt_window.geometry("300x150")
+
+        # Label for the prompt text
+        label = tk.Label(prompt_window, text=prompt_text)
+        label.pack(pady=10)
+
+        # Entry widget for user input
+        entry = tk.Entry(prompt_window, width=30)
+        entry.pack(pady=5)
+
+        # Function to handle submission
+        def submit_entry():
+            value = entry.get()
+            if value.strip() == "":
+                messagebox.showerror("Error", "Entry cannot be empty.", parent=prompt_window)
+                return
+            
+            callback(*params, value)
+            prompt_window.destroy()
+
+        # Submit button
+        submit_button = ttk.Button(prompt_window, text="Submit", command=submit_entry)
+        submit_button.pack(pady=10)
+
+    def _generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
         field_lbl = tk.Label(field_frame, text=lbl_str, width=lbl_width, anchor='e')
         field_lbl.grid(row=row, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=row, column=1, padx=(1, 2), sticky='nsew')
         if btn_obj is not None:
             btn_obj.grid(row=row, column=2, padx=(4, 4))
         return target_obj
+    
+    def _build_api_form(self, parent) -> ttk.Frame:
+        ## Nested Methods
+        ##====================================================================================================================================================
+        def update_acct_fields(username_str, btn_str):
+            self.username_strval.set(username_str)
+            self.link_btn_strval.set(btn_str)
 
-    def dialog(self, msg):
-        self.parent_frame.dialog(msg=msg)
+        def update_status_fields(link_status_str, auth_status_str):
+            self.link_status_strval.set(link_status_str)
 
-    def __file_select(self, field: Type[tk.Label], type: Type[str]):
-        fp = filedialog.askopenfilename().strip()
+        def update_message_field(msg):
+            self.message_strval.set(msg)
 
-        if fp is not None and fp != '':
-            if type == 'us':
-                self.dc.set_us_fp(fp=fp)
-            elif type == 'task':
-                self.dc.set_task_fp(fp=fp)
+        def validate_token_auth(token) -> bool:
+            isSuccess = self.dc.validate_token_auth(token=token)
+            if isSuccess:
+                update_status_fields('Success', 'Success')
+                update_message_field('Ready to make Taiga API Requests')
+            return isSuccess
+
+        def authenticate_with_credentials(username, password):
+            result, msg = self.dc.authenticate_with_taiga(username=username, password=password)
+            if result == 'Success':
+                update_status_fields('Success', 'Success')
+                update_message_field('Ready to make Taiga API Requests')
             else:
-                return
+                update_status_fields('Fail', 'Fail')
+                update_message_field(msg)
+
+        def initialize_fields():
+            username, password, token = self.dc.get_site_credentials('Taiga')
+            if username and password:
+                update_acct_fields(username, 'Update Credentials')
+
+                if token:
+                    if not validate_token_auth(token):
+                        authenticate_with_credentials(username, password)
+                else:
+                    authenticate_with_credentials(username, password)
+            else:
+                update_acct_fields('No Linked User', 'Link Account')
+                update_status_fields('Fail', 'Fail')
+                update_message_field('A Taiga Account Must Be Linked')
+
+        def open_taiga_link_window(btn_lbl='Link'):
+            # Create a new Toplevel window for the login form
+            link_window = tk.Toplevel()
+            link_window.title("Taiga Login")
+            link_window.geometry("300x200")
+
+            curr_uname, curr_pwd, curr_token = self.dc.get_site_credentials('Taiga')
+
+            # Function to authenticate with Taiga API
+            def authenticate_with_taiga():
+                username = username_entry.get()
+                password = password_entry.get()
+
+                result, msg = self.dc.authenticate_with_taiga(username, password)
+                if result == 'Success':
+                    messagebox.showinfo(result, msg, parent=link_window)
+
+                    update_acct_fields(username, 'Update Credentials')
+                    update_status_fields('Success', 'Success')
+                    update_message_field('Ready to make Taiga API Requests')
+
+                    link_window.destroy()
+                else:
+                    messagebox.showerror(result, msg, parent=link_window)
+
+            # Username Label and Entry
+            username_label = tk.Label(link_window, text="Username:")
+            username_label.pack(pady=5)
+            username_entry = tk.Entry(link_window, width=30)
+            username_entry.pack(pady=5)
+
+            # Password Label and Entry
+            password_label = tk.Label(link_window, text="Password:")
+            password_label.pack(pady=5)
+            password_entry = tk.Entry(link_window, show="*", width=30)
+            password_entry.pack(pady=5)
+
+            if curr_uname is not None:
+                username_entry.insert(0, curr_uname)
+
+            if curr_pwd is not None:
+                password_entry.insert(0, curr_pwd)
+
+            # Login Button
+            link_button = ttk.Button(link_window, text=btn_lbl, command=authenticate_with_taiga)
+            link_button.pack(pady=10)
+
+        def import_from_api():
+            pass
+
+        def open_project_sel_prompt():
+            # Create a new Toplevel window for the login form
+            project_window = tk.Toplevel()
+            project_window.title("Taiga Project Select")
+            project_window.geometry("300x200")
+
+            def select_project():
+                project = proj_sel_strvar.get()
+                self.dc.set_linked_taiga_project(project)
+
+            proj_sel_strvar = StringVar(project_window)
+            proj_sel_strvar.set('')
+
+            project_list = self.dc.get_available_projects()
+            proj_opts = []
+
+            for project in project_list:
+                proj_opts.append(project['name'])
+
             
-            field.config(text=fp, anchor='w')
 
-            if self.us_fp_readonly['text'] != 'No File Selected' and self.task_fp_readonly['text'] != 'No File Selected':
-                self.import_data_from_file_btn['state'] = 'normal'
+            # Username Label and Entry
+            project_sel_lbl = tk.Label(project_window, text="Select a Project To Link:")
+            project_sel_lbl.pack(pady=5)
+            project_opt_sel = CustomOptionMenu(project_window, proj_sel_strvar, *proj_opts)
+            project_opt_sel.pack(pady=5)
 
-    def __build_file_sel_widget(self, parent) -> ttk.Frame:
+            # Login Button
+            link_project_button = ttk.Button(project_window, text='Submit', command=select_project)
+            link_project_button.pack(pady=10)
+
+        ## Function logic
+        ##====================================================================================================================================================
         widget_frame = ttk.Frame(parent)
-        file_sel_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Import from File{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+
+        api_config_frame_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Import Using API{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge', anchor='center')
+        import_from_api_btn = ttk.Button(widget_frame, text='Import Data from API', command=import_from_api)
+
+        details_frame = ttk.Frame(widget_frame)
+        acct_frame = ttk.Frame(details_frame, borderwidth=2, relief='ridge')
+        status_frame = ttk.Frame(details_frame, borderwidth=2, relief='ridge')
+
+        self.username_strval = StringVar(value='No Profile Linked')
+        self.link_btn_strval = StringVar(value='Link Taiga Account')
+
+        self.link_status_strval = StringVar(value='Not Linked')
+        self.project_sel_btn_strval = StringVar(value='Set Linked Project')
+        self.message_strval = StringVar(value='An account must be linked for using the API')
+
+        ## Account details info
+        acct_frame_lbl = ttk.Label(acct_frame, text=f'{' ' * 6}Authentication Details{' ' * 6}', font=('Arial', 12), borderwidth=2, relief='ridge', anchor='center')
+        acct_fields_frame = ttk.Frame(acct_frame)
+        self._generate_field_obj(acct_fields_frame, 
+                                 0, 
+                                 'Username:', 
+                                 12, 
+                                 ttk.Label(acct_fields_frame, textvariable=self.username_strval, anchor='w'))
+        btn_style = ttk.Style()
+        btn_style.configure('my.TButton', font=('Arial', 8))
+        link_acct_btn = ttk.Button(acct_frame, textvariable=self.link_btn_strval, style='my.TButton', command=open_taiga_link_window)
+
+        ## Link Status details info
+        link_status_lbl = ttk.Label(status_frame, text=f'{' ' * 6}Authentication Status{' ' * 6}', font=('Arial', 12), borderwidth=2, relief='ridge', anchor='center')
+        status_fields_frame = ttk.Frame(status_frame)
+        self._generate_field_obj(status_fields_frame,
+                                 0,
+                                 'Link Status:',
+                                 12,
+                                 ttk.Label(status_fields_frame, textvariable=self.link_status_strval, anchor='w'))
+        project_link_btn = ttk.Button(status_fields_frame, textvariable=self.project_sel_btn_strval, style='my.TButton', command=open_project_sel_prompt)
+        project_link_btn.grid(row=1, columnspan=2, padx=(4, 4))
         
-        fp_sel_frame = ttk.Frame(widget_frame)
+        message_field = ttk.Label(details_frame, textvariable=self.message_strval, font=('Arial', 8, 'normal', 'italic'), padding=3, borderwidth=2, relief='ridge', anchor='center')
+        
+        ## Configure Acct Details Frame
+        acct_frame_lbl.pack(fill='x', pady=(0, 6))
+        acct_fields_frame.pack(fill='x', anchor='center')
+        link_acct_btn.pack(pady=(2, 6))
+        ## Configure Link Status Frame
+        link_status_lbl.pack(fill='x', pady=(0, 6))
+        status_fields_frame.pack(fill='x', pady=(0, 6), anchor='center')
 
-        # User Story File Select
-        self.us_fp_readonly = self.__generate_field_obj(fp_sel_frame, 
-                                                      0, 
-                                                      'US Report Filepath:', 
-                                                      16, 
-                                                      tk.Label(fp_sel_frame, text='No File Selected', anchor='w'), 
-                                                      tk.Button(fp_sel_frame, text='Select Report File', command=lambda: self.__file_select(self.us_fp_readonly, 'us'), anchor='e'))
+        ## Set Placement of Acct and Status frames
+        acct_frame.grid(row=0, column=0, sticky='nsew')
+        status_frame.grid(row=0, column=1, sticky='nsew')
+        message_field.grid(row=1, columnspan=2, sticky='nsew')
 
-        # Task File Select
-        self.task_fp_readonly = self.__generate_field_obj(fp_sel_frame, 
-                                                      1, 
-                                                      'Task Report Filepath:', 
-                                                      16, 
-                                                      tk.Label(fp_sel_frame, text='No File Selected', anchor='w'), 
-                                                      tk.Button(fp_sel_frame, text='Select Report File', command=lambda: self.__file_select(self.task_fp_readonly, 'task'), anchor='e'))
+        ## Build Whole Frame
+        api_config_frame_lbl.pack(fill='x', pady=(0, 8))
+        details_frame.pack(pady=(0,8))
+        import_from_api_btn.pack()
+
+        initialize_fields()
+
+        return widget_frame
+
+    def _build_csv_links_form(self, parent) -> ttk.Frame:
+        ## Nested Methods
+        ##====================================================================================================================================================
+        def set_url(field: StringVar, type: str, url: str):
+            if url is not None and url != '':
+                if type == 'us':
+                    if 'https://api.taiga.io/api/v1/userstories/csv?uuid=' in url:
+                        self.dc.set_taiga_us_api_url(url)
+                        field.set(url)
+                elif type == 'task':
+                    if 'https://api.taiga.io/api/v1/tasks/csv?uuid=' in url:
+                        self.dc.set_taiga_task_api_url(url)
+                        field.set(url)
+                else:
+                    return
+                
+                if self.us_csv_url_strvar != 'No URL Specified' and self.task_csv_url_strvar.get() != 'No URL Specified':
+                    self.import_from_csv_url_btn['state'] = 'normal'
+            else:
+                messagebox.showerror('Invalid URL', 'Invalid URL entered')
+
+        def url_update_dialog(field: StringVar, type: str):
+            prompt_title = f'Set/Update {'User Story' if type == 'us' else 'Task'} CSV Import URL'
+            self.prompt_for_entry(prompt_title, 'Enter the URL:', set_url, [field, type])
+
+        ## Function logic
+        ##====================================================================================================================================================
+        widget_frame = ttk.Frame(parent)
+
+        csv_url_config_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV URLs{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        csv_url_config_frame = ttk.Frame(widget_frame)
+
+        self.us_csv_url_strvar = StringVar(value='No URL Specified')
+        self.task_csv_url_strvar = StringVar(value='No URL Specified')
+
+        self._generate_field_obj(csv_url_config_frame, 
+                                    0, 
+                                    'US Report CSV URL:', 
+                                    16, 
+                                    tk.Label(csv_url_config_frame, textvariable=self.us_csv_url_strvar, anchor='w'), 
+                                    ttk.Button(csv_url_config_frame, text='Set CSV URL', command=lambda: url_update_dialog(self.us_csv_url_strvar, 'us')))
+        
+        self._generate_field_obj(csv_url_config_frame, 
+                                    1, 
+                                    'Task Report CSV URL:', 
+                                    16, 
+                                    tk.Label(csv_url_config_frame, textvariable=self.task_csv_url_strvar, anchor='w'), 
+                                    ttk.Button(csv_url_config_frame, text='Set CSV URL', command=lambda: url_update_dialog(self.task_csv_url_strvar, 'task')))
+        
 
         # Buttons for importing and exporting data
         btn_frame = ttk.Frame(widget_frame)
-        self.import_data_from_file_btn = tk.Button(btn_frame, text='Import from Files', state='disabled', command=lambda: self.parent_frame.start_file_import_thread())
+        self.import_from_csv_url_btn = ttk.Button(btn_frame, text='Import from CSV URL', state='disabled', command=lambda: self.parent_frame.start_api_import_thread())
+        self.import_from_csv_url_btn.grid(row=0, column=0, padx=2, sticky='nsew')
+
+        csv_url_config_lbl.pack(fill='x', pady=(0, 8))
+        csv_url_config_frame.pack(pady=(0, 4))
+        btn_frame.pack()
+
+        us_url = self.dc.get_taiga_us_csv_url()
+        task_url = self.dc.get_taiga_task_csv_url()
+
+        if us_url is not None:
+            self.us_csv_url_strvar.set(us_url)
+        if task_url is not None:
+            self.task_csv_url_strvar.set(task_url)
+
+        return widget_frame
+
+    def _build_file_form(self, parent) -> ttk.Frame:
+        ## Nested Methods
+        ##====================================================================================================================================================
+        def file_select(self, field: StringVar, type: str):
+            fp = filedialog.askopenfilename().strip()
+
+            if fp is not None and fp != '':
+                if type == 'us':
+                    field.set(fp)
+                    self.dc.set_us_fp(fp)
+                elif type == 'task':
+                    field.set(fp)
+                    self.dc.set_task_fp(fp)
+                else:
+                    return
+
+                if self.us_fp_strval.get() != 'No File Selected' and self.task_fp_strval.get() != 'No File Selected':
+                    self.import_data_from_file_btn['state'] = 'normal'
+
+        ## Function Logic
+        ##====================================================================================================================================================
+
+        widget_frame = ttk.Frame(parent)
+        file_sel_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV Files{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        
+        fp_sel_frame = ttk.Frame(widget_frame)
+
+        self.us_fp_strval = StringVar(value='No File Selected')
+        self.task_fp_strval = StringVar(value='No File Selected')
+        # User Story File Select
+        self._generate_field_obj(fp_sel_frame, 
+                                    0, 
+                                    'US Report Filepath:', 
+                                    16, 
+                                    tk.Label(fp_sel_frame, textvariable=self.us_fp_strval, anchor='w'), 
+                                    ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.us_fp_strval, 'us')))
+
+        # Task File Select
+        self._generate_field_obj(fp_sel_frame, 
+                                    1, 
+                                    'Task Report Filepath:', 
+                                    16, 
+                                    tk.Label(fp_sel_frame, textvariable=self.task_fp_strval, anchor='w'), 
+                                    ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.task_fp_strval, 'task')))
+
+        # Buttons for importing and exporting data
+        btn_frame = ttk.Frame(widget_frame)
+        self.import_data_from_file_btn = ttk.Button(btn_frame, text='Import from Files', state='disabled', command=lambda: self.parent_frame.start_file_import_thread())
         self.import_data_from_file_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         file_sel_lbl.pack(fill='x', pady=(0, 8))
@@ -168,72 +467,7 @@ class ConfigFrame(ttk.Frame):
 
         return widget_frame
     
-    def __update_field(self, field: Type[tk.Label], val: Type[str]):
-        if val is not None and val != '':
-            field.config(text=val, anchor='w')
-
-            if self.us_api_readonly['text'] != 'No URL Specified' and self.task_api_readonly['text'] != 'No URL Specified':
-                self.import_from_api_btn['state'] = 'normal'
     
-    def __set_url(self, field: Type[tk.Label], url: Type[str], type: Type[str]):
-        if url is not None and url != '':
-            if type == 'us':
-                if 'https://api.taiga.io/api/v1/userstories/csv?uuid=' in url:
-                    self.dc.set_taiga_us_api_url(url)
-                    self.__update_field(field, url)
-                    return
-            elif type == 'task':
-                if 'https://api.taiga.io/api/v1/tasks/csv?uuid=' in url:
-                    self.dc.set_taiga_task_api_url(url)
-                    self.__update_field(field, url)
-                    return
-            else:
-                return
-        self.dialog('Invalid URL entered!')
-
-    def __url_update_dialog(self, field: Type[tk.Label], type: Type[str]):
-        url = self.parent_frame.answer_dialog(msg='Enter the API URL').strip()
-        if url is not None and url != '':
-            self.__set_url(field, url, type)
-            return
-        
-        self.dialog('Invalid URL entered!')
-    
-    def __build_api_form(self, parent) -> ttk.Frame:
-        widget_frame = ttk.Frame(parent)
-
-        api_config_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Import from API{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
-
-        api_config_frame = ttk.Frame(widget_frame)
-
-        self.us_api_readonly = self.__generate_field_obj(api_config_frame, 
-                                                         0, 
-                                                         'US Report API URL:', 
-                                                         16, 
-                                                         tk.Label(api_config_frame, text='No URL Specified'), 
-                                                         tk.Button(api_config_frame, text='Set API URL', command=lambda: self.__url_update_dialog(self.us_api_readonly, 'us'), anchor='e'))
-        
-        self.task_api_readonly = self.__generate_field_obj(api_config_frame, 
-                                                         1, 
-                                                         'Task Report API URL:', 
-                                                         16, 
-                                                         tk.Label(api_config_frame, text='No URL Specified'), 
-                                                         tk.Button(api_config_frame, text='Set API URL', command=lambda: self.__url_update_dialog(self.task_api_readonly, 'task'), anchor='e'))
-        
-
-        # Buttons for importing and exporting data
-        btn_frame = ttk.Frame(widget_frame)
-        self.import_from_api_btn = tk.Button(btn_frame, text='Import from API', state='disabled', command=lambda: self.parent_frame.start_api_import_thread(), anchor='e')
-        self.import_from_api_btn.grid(row=0, column=0, padx=2, sticky='nsew')
-
-        api_config_lbl.pack(fill='x', pady=(0, 8))
-        api_config_frame.pack(pady=(0, 4))
-        btn_frame.pack()
-
-        self.__update_field(self.us_api_readonly, self.dc.get_taiga_us_api_url())
-        self.__update_field(self.task_api_readonly, self.dc.get_taiga_task_api_url())
-
-        return widget_frame
     
 class DataFrame(ttk.Frame):
     parent_frame : Type[TaigaFrame] = None
@@ -476,10 +710,10 @@ class DataFrame(ttk.Frame):
         user_frame.grid(row=0, column=2, sticky='nsew')
 
         # Buttons
-        apply_filters_btn = tk.Button(btn_frame, 
+        apply_filters_btn = ttk.Button(btn_frame, 
                                       text='Apply Filters', 
                                       command=lambda: self.__apply_filters(from_date_entry, to_date_entry, us_filter, sprint_filter, user_filter))
-        self.clear_filters_btn = tk.Button(btn_frame, 
+        self.clear_filters_btn = ttk.Button(btn_frame, 
                                       text='Clear Filters', 
                                       state='disabled',
                                       command=lambda: self.__clear_filters(from_date_entry, to_date_entry, us_filter, sprint_filter, user_filter))
@@ -495,8 +729,8 @@ class DataFrame(ttk.Frame):
         
     def __build_table_btn_frame(self) -> ttk.Frame:
         btn_frame = ttk.Frame(self)
-        save_data_btn = tk.Button(btn_frame, text='Save Current Table', command=lambda: self.__save_table_data(), padx=1)
-        clear_data_btn = tk.Button(btn_frame, text='Clear All Taiga Data', command=lambda: self.__clear_data(), padx=1)
+        save_data_btn = ttk.Button(btn_frame, text='Save Current Table', command=lambda: self.__save_table_data())
+        clear_data_btn = ttk.Button(btn_frame, text='Clear All Taiga Data', command=lambda: self.__clear_data())
         save_data_btn.grid(row=0, column=0, sticky='nsew', padx=2)
         clear_data_btn.grid(row=0, column=1, sticky='nsew', padx=2)
         return btn_frame

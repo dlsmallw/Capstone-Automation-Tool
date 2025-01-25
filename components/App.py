@@ -4,14 +4,17 @@ import pandas as pd
 
 from models import DataManager
 from components import GitFrame, HomeFrame, TaigaFrame, ReportsFrame
+from models.database.RecordDatabase import RecDB
 
 class Application():
     root = None
     curr_tab = None
     prev_tab = None
+    db = None
 
     def __init__(self):
-        dc = DataManager.DataController()
+        db = RecDB()
+        dc = DataManager.DataController(db)
         title = 'Capstone Automation Tool'
         geometry = '1000x800'
 

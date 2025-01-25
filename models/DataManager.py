@@ -5,22 +5,78 @@ import openpyxl as opyxl
 import pandas as pd
 import numpy as np
 from typing import Type
-from models import GitCommitParser, TaigaCSVParser
+from models import GitCommitParser, TaigaCSVParser, Taiga
+from models.database.RecordDatabase import RecDB
 import requests
 
 class DataController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
     config_parser = None
+    db = None
 
+    ts = None
     tp = None
     gp = None
 
     gh_auth_verified = False
     gh_repo_verified = False
 
-    def __init__(self):
+    def __init__(self, db: RecDB):
+        self.db = db
+        self.init_taiga_servicer()
         self.__load_config()
         self.__load_raw_data()
+    
+    def init_taiga_servicer(self):
+        ## load from db TODO
+        self.ts = Taiga.TaigaProjectServicer()
+
+    def get_site_credentials(self, site_name):
+        return self.db.get_user_credential_for_site(site_name)
+
+    def update_user_credentials(self, site_name, user_name, pwd, token):
+        self.db.update_user_credentials(site_name, user_name, pwd, token)
+
+    def validate_token_auth(self, token):
+        header = {
+            "Content-Type": "application/json",
+            "Authorization": f'Bearer {token}'
+        }
+        url = 'https://api.taiga.io/api/v1/users/me'
+        res = requests.get(url, headers=header)
+        return res.status_code >= 200 and res.status_code < 300
+
+    # Function to authenticate with Taiga API
+    def authenticate_with_taiga(self, username, password):
+        if not username or not password:
+            return "Error", "Please enter both username and password."
+            
+        url = "https://api.taiga.io/api/v1/auth"  # Change this to your Taiga API URL if self-hosted
+        data = {
+            "type": "normal",
+            "username": username,
+            "password": password
+        }
+
+        try:
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                auth_token = response.json().get("auth_token")
+                self.ts.init_with_comp_credentials(username, password, auth_token)
+
+                self.update_user_credentials('Taiga', username, password, auth_token)
+                return "Success", f"Login successful! Token: {auth_token}"
+            else:
+                return "Error", f"Login failed: {response.json().get('non_field_errors', 'Unknown error')}"
+        except Exception as e:
+            return "Error", f"An error occurred: {e}"
+        
+    def get_available_projects(self):
+        return self.ts.get_available_projects()
+    
+    def set_linked_taiga_project(self, project):
+        self.ts.set_project_by_name(project)
+
 
     ## Config Management
     ##=============================================================================
@@ -260,7 +316,6 @@ class DataController:
     def get_gh_repo_name(self):
         return self.gp.get_gh_repo_name()
     
-   
     ## Taiga Controller Management
     ##=============================================================================
 
@@ -268,14 +323,14 @@ class DataController:
         self.tp.set_us_report_url(url)
         self.__update_taiga_config_opt('us_report_api_url', url)
 
-    def get_taiga_us_api_url(self):
+    def get_taiga_us_csv_url(self):
         return self.tp.get_us_report_url()
 
     def set_taiga_task_api_url(self, url):
         self.tp.set_task_report_url(url)
         self.__update_taiga_config_opt('task_report_api_url', url)
 
-    def get_taiga_task_api_url(self):
+    def get_taiga_task_csv_url(self):
         return self.tp.get_task_report_url()
 
     def set_us_fp(self, fp):
