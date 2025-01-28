@@ -13,6 +13,7 @@ pytz = "*"
 tksheet = "*"
 tkcalendar = "*"
 pyinstaller = "*"
+pygithub = "*"
 
 [dev-packages]
 

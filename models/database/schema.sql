@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS taiga_projects (
     id INTEGER NOT NULL,
     project_name TEXT NOT NULL,
     project_owner TEXT NOT NULL,
-    is_selected BOOLEAN NOT NULL CHECK (is_complete IN (0, 1)),
+    is_selected BOOLEAN NOT NULL CHECK (is_selected IN (0, 1)),
     PRIMARY KEY(id)
 );
 
@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS userstories (
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER,
     task_num INTEGER NOT NULL,
+    is_coding BOOLEAN NOT NULL CHECK (is_coding IN (0, 1)),
     is_complete BOOLEAN NOT NULL CHECK (is_complete IN (0, 1)),
     us_id INTEGER,
     assignee TEXT,

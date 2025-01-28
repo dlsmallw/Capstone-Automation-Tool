@@ -7,69 +7,39 @@ import pandas as pd
 import numpy as np
 import threading
 import requests
+import time
 
-from models import DataManager
-from components import DialogWindow
+from models.DataManager import DataController
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
 
 class TaigaFrame(ttk.Frame):
-    root : Type[Tk] = None
-    parent_frame = None
-    DialogBox = None
-
-    def __init__(self, parent: Type[ttk.Notebook], dc: Type[DataManager.DataController]):
+    def __init__(self, parent: ttk.Notebook, dc: DataController):
         super().__init__(parent)
+        self.root : Tk = None
+        self.parent_frame = None
+
         self.dc = dc
         self.parent_frame = parent
         self.root = parent.master
-
-        Dialog = DialogWindow.Dialog
-        Dialog.root = parent
-        self.DialogBox = Dialog
 
         self.config_frame = ConfigFrame(self, dc)
         self.data_frame = DataFrame(self, dc)
 
         self.config_frame.pack(fill='x', anchor='n', pady=(0, 10))
         self.data_frame.pack(fill='both', expand=True, anchor='n')
+        self.refresh()
 
     def refresh(self):
         self.root.update()
         self.root.after(1000,self.refresh)
 
     def start_file_import_thread(self):
-        self.refresh()
         threading.Thread(target=self.import_from_files).start()
 
     def start_api_import_thread(self):
-        self.refresh()
         threading.Thread(target=self.import_from_api).start()
     
-    def import_from_files(self):
-        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga File Import Call, Please Wait...')
-        temp_lbl.pack()
-
-        try:
-            self.dc.taiga_retrieve_from_files()
-            df = self.dc.get_taiga_master_df()
-            self.data_frame.build_data_display(df)
-        except:
-            self.dialog('Failed to import data')
-        finally:
-            temp_lbl.destroy()
-
-    def import_from_api(self):
-        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga API Import Call, Please Wait...')
-        temp_lbl.pack()
-
-        try:
-            self.dc.taiga_retrieve_from_api()
-            df = self.dc.get_taiga_master_df()
-            self.data_frame.build_data_display(df)
-        except:
-            self.dialog('Failed to import data')
-        finally:
-            temp_lbl.destroy()
+    
 
     def taiga_data_ready(self) -> bool:
         return self.data_frame.taiga_data_ready()
@@ -82,20 +52,15 @@ class TaigaFrame(ttk.Frame):
     
     def get_sprints(self) -> list:
         return self.data_frame.get_sprints()
-
-    def dialog(self, msg):
-        self.DialogBox(msg)
-
-    def answer_dialog(self, msg):
-        win = self.DialogBox(msg, True)
-        self.root.wait_window(win.top)
-        return win.result
     
-    
-
 class ConfigFrame(ttk.Frame):
-    def __init__(self, parent: TaigaFrame, dc: DataManager.DataController):
+    
+
+    def __init__(self, parent: TaigaFrame, dc: DataController):
         super().__init__(parent)
+        self.is_linked = False
+        self.project_set = False
+
         self.dc = dc
         self.parent_frame = parent
         self.notebook = ttk.Notebook(self)
@@ -116,6 +81,47 @@ class ConfigFrame(ttk.Frame):
         self.notebook.add(csv_links_tab, text='By CSV URLs')
         self.notebook.add(file_tab, text='By CSV Files')
         self.notebook.pack()
+
+    def import_by_api(self):
+        temp_lbl = ttk.Label(self, text='Handling Taiga API Import Call, Please Wait...')
+        temp_lbl.pack()
+
+        try:
+            self.dc.taiga_import_by_api()
+        except:
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
+        finally:
+            temp_lbl.destroy()
+
+    def import_by_files(self, us_fp, task_fp):
+        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga File Import Call, Please Wait...')
+        temp_lbl.pack()
+
+        try:
+            self.dc.taiga_import_by_files(us_fp, task_fp)
+            df = self.dc.get_taiga_master_df()
+            self.data_frame.build_data_display(df)
+        except:
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by file')
+        finally:
+            temp_lbl.destroy()
+
+    def import_by_csv_urls(self, us_url, task_url):
+        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga API Import Call, Please Wait...')
+        temp_lbl.pack()
+
+        try:
+            self.dc.taiga_import_by_urls(us_url, task_url)
+            df = self.dc.get_taiga_master_df()
+            self.data_frame.build_data_display(df)
+        except:
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by csv URLs')
+        finally:
+            temp_lbl.destroy()
+
+
+    def ready_for_project_sel(self):
+        self.project_link_btn['state'] = 'normal'
 
     def prompt_for_entry(self, prompt_title, prompt_text, callback, params):
         prompt_window = tk.Toplevel()
@@ -145,7 +151,7 @@ class ConfigFrame(ttk.Frame):
         submit_button.pack(pady=10)
 
     def _generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
-        field_lbl = tk.Label(field_frame, text=lbl_str, width=lbl_width, anchor='e')
+        field_lbl = tk.Label(field_frame, text=lbl_str, anchor='e')
         field_lbl.grid(row=row, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=row, column=1, padx=(1, 2), sticky='nsew')
         if btn_obj is not None:
@@ -159,50 +165,64 @@ class ConfigFrame(ttk.Frame):
             self.username_strval.set(username_str)
             self.link_btn_strval.set(btn_str)
 
-        def update_status_fields(link_status_str, auth_status_str):
+        def update_status_fields(link_status_str):
             self.link_status_strval.set(link_status_str)
 
         def update_message_field(msg):
             self.message_strval.set(msg)
 
-        def validate_token_auth(token) -> bool:
-            isSuccess = self.dc.validate_token_auth(token=token)
-            if isSuccess:
-                update_status_fields('Success', 'Success')
-                update_message_field('Ready to make Taiga API Requests')
-            return isSuccess
+        def not_authed_or_linked():
+            update_acct_fields('No Linked User', 'Link Account')
+            update_status_fields('Not Linked')
+            update_message_field('A Taiga Account Must Be Linked')
+
+        def authed_waiting_for_proj_sel():
+            update_status_fields('Success')
+            self.project_sel_btn_strval.set('Link Project')
+            update_message_field('Account Linked - Waiting for Project List...')
+
+        def authed_and_linked(project):
+            update_status_fields('Success')
+            self.project_sel_btn_strval.set('Change Linked Project')
+            self.project_link_btn['state'] = 'normal'
+            self.import_from_api_btn['state'] = 'normal'
+            update_message_field(f"Project '{project}' selected - Ready to make Taiga API calls")
 
         def authenticate_with_credentials(username, password):
             result, msg = self.dc.authenticate_with_taiga(username=username, password=password)
             if result == 'Success':
-                update_status_fields('Success', 'Success')
-                update_message_field('Ready to make Taiga API Requests')
+                project = self.dc.get_linked_project()[1]
+                if project is not None:
+                    authed_and_linked(project)
+                else:
+                    th1 = threading.Thread(target=wait_for_projects)
+                    authed_waiting_for_proj_sel()
+                    th1.start()
             else:
-                update_status_fields('Fail', 'Fail')
                 update_message_field(msg)
 
         def initialize_fields():
-            username, password, token = self.dc.get_site_credentials('Taiga')
+            username, password = self.dc.load_taiga_credentials()
+
             if username and password:
                 update_acct_fields(username, 'Update Credentials')
-
-                if token:
-                    if not validate_token_auth(token):
-                        authenticate_with_credentials(username, password)
-                else:
-                    authenticate_with_credentials(username, password)
+                authenticate_with_credentials(username, password)
             else:
-                update_acct_fields('No Linked User', 'Link Account')
-                update_status_fields('Fail', 'Fail')
-                update_message_field('A Taiga Account Must Be Linked')
+                not_authed_or_linked()
+
+        def wait_for_projects():
+            self.dc.wait_for_projects()
+            update_message_field('Account Linked - Project List Ready to Select From...')
+            self.project_link_btn['state'] = 'normal'
 
         def open_taiga_link_window(btn_lbl='Link'):
             # Create a new Toplevel window for the login form
             link_window = tk.Toplevel()
             link_window.title("Taiga Login")
             link_window.geometry("300x200")
+            link_window.wm_protocol("WM_DELETE_WINDOW", link_window.quit)
 
-            curr_uname, curr_pwd, curr_token = self.dc.get_site_credentials('Taiga')
+            curr_uname, curr_pwd = self.dc.load_taiga_credentials()
 
             # Function to authenticate with Taiga API
             def authenticate_with_taiga():
@@ -211,13 +231,16 @@ class ConfigFrame(ttk.Frame):
 
                 result, msg = self.dc.authenticate_with_taiga(username, password)
                 if result == 'Success':
-                    messagebox.showinfo(result, msg, parent=link_window)
-
+                    th1 = threading.Thread(target=wait_for_projects)
+                    authed_waiting_for_proj_sel()
                     update_acct_fields(username, 'Update Credentials')
-                    update_status_fields('Success', 'Success')
-                    update_message_field('Ready to make Taiga API Requests')
-
-                    link_window.destroy()
+                    update_status_fields('Success')
+                    update_message_field('Account Linked - Waiting for Project List...')
+                    th1.start()
+                    if threading.currentThread != th1:
+                        messagebox.showinfo(result, 'Successfully linked the Taiga account', parent=link_window)
+                        link_window.destroy()
+                    
                 else:
                     messagebox.showerror(result, msg, parent=link_window)
 
@@ -244,28 +267,30 @@ class ConfigFrame(ttk.Frame):
             link_button.pack(pady=10)
 
         def import_from_api():
-            pass
+            threading.Thread(target=self.import_by_api).start()
 
         def open_project_sel_prompt():
             # Create a new Toplevel window for the login form
             project_window = tk.Toplevel()
             project_window.title("Taiga Project Select")
             project_window.geometry("300x200")
+            project_window.wm_protocol("WM_DELETE_WINDOW", project_window.quit)
 
             def select_project():
                 project = proj_sel_strvar.get()
-                self.dc.set_linked_taiga_project(project)
-
+                result, msg = self.dc.select_taiga_project(project)
+                
+                if result == 'Success':
+                    messagebox.showinfo(result, msg, parent=project_window)
+                    authed_and_linked(project)
+                    project_window.destroy()
+                else:
+                    messagebox.showerror(result, msg, parent=project_window)
+                
             proj_sel_strvar = StringVar(project_window)
             proj_sel_strvar.set('')
 
-            project_list = self.dc.get_available_projects()
-            proj_opts = []
-
-            for project in project_list:
-                proj_opts.append(project['name'])
-
-            
+            proj_opts = self.dc.get_available_projects()
 
             # Username Label and Entry
             project_sel_lbl = tk.Label(project_window, text="Select a Project To Link:")
@@ -302,7 +327,7 @@ class ConfigFrame(ttk.Frame):
                                  0, 
                                  'Username:', 
                                  12, 
-                                 ttk.Label(acct_fields_frame, textvariable=self.username_strval, anchor='w'))
+                                 ttk.Label(acct_fields_frame, textvariable=self.username_strval))
         btn_style = ttk.Style()
         btn_style.configure('my.TButton', font=('Arial', 8))
         link_acct_btn = ttk.Button(acct_frame, textvariable=self.link_btn_strval, style='my.TButton', command=open_taiga_link_window)
@@ -314,19 +339,21 @@ class ConfigFrame(ttk.Frame):
                                  0,
                                  'Link Status:',
                                  12,
-                                 ttk.Label(status_fields_frame, textvariable=self.link_status_strval, anchor='w'))
-        project_link_btn = ttk.Button(status_fields_frame, textvariable=self.project_sel_btn_strval, style='my.TButton', command=open_project_sel_prompt)
-        project_link_btn.grid(row=1, columnspan=2, padx=(4, 4))
+                                 ttk.Label(status_fields_frame, textvariable=self.link_status_strval))
+        self.project_link_btn = ttk.Button(status_frame, textvariable=self.project_sel_btn_strval, style='my.TButton', command=open_project_sel_prompt, state='disabled')
         
         message_field = ttk.Label(details_frame, textvariable=self.message_strval, font=('Arial', 8, 'normal', 'italic'), padding=3, borderwidth=2, relief='ridge', anchor='center')
+
+        self.import_from_api_btn = ttk.Button(widget_frame, text='Import by API', command=import_from_api, state='disabled')
         
         ## Configure Acct Details Frame
         acct_frame_lbl.pack(fill='x', pady=(0, 6))
-        acct_fields_frame.pack(fill='x', anchor='center')
+        acct_fields_frame.pack()
         link_acct_btn.pack(pady=(2, 6))
         ## Configure Link Status Frame
         link_status_lbl.pack(fill='x', pady=(0, 6))
-        status_fields_frame.pack(fill='x', pady=(0, 6), anchor='center')
+        status_fields_frame.pack(pady=(0, 6))
+        self.project_link_btn.pack(padx=(4, 4))
 
         ## Set Placement of Acct and Status frames
         acct_frame.grid(row=0, column=0, sticky='nsew')
@@ -336,7 +363,7 @@ class ConfigFrame(ttk.Frame):
         ## Build Whole Frame
         api_config_frame_lbl.pack(fill='x', pady=(0, 8))
         details_frame.pack(pady=(0,8))
-        import_from_api_btn.pack()
+        self.import_from_api_btn.pack()
 
         initialize_fields()
 
@@ -470,26 +497,19 @@ class ConfigFrame(ttk.Frame):
     
     
 class DataFrame(ttk.Frame):
-    parent_frame : Type[TaigaFrame] = None
-    filter_panel : Type[ttk.Frame] = None
-    btn_frame : Type[ttk.Frame] = None
-    sheet : Type[tks.Sheet] = None
-    master_df : Type[pd.DataFrame] = None
-    sheet_master_df : Type[pd.DataFrame] = None
-    col_widths = None
-
-    def __init__(self, parent: Type[TaigaFrame], dc: Type[DataManager.DataController]):
+    def __init__(self, parent: TaigaFrame, dc: DataController):
         super().__init__(parent)
+
+        self.parent_frame : TaigaFrame = None
+        self.filter_panel : ttk.Frame = None
+        self.btn_frame : ttk.Frame = None
+        self.sheet : tks.Sheet = None
+        self.master_df : pd.DataFrame = None
+        self.sheet_master_df : pd.DataFrame = None
+        self.col_widths = None
+
         self.dc = dc
         self.parent_frame = parent
-
-        data_ready = self.dc.taiga_data_ready()
-        if data_ready:
-            self.master_df = self.dc.get_taiga_master_df()
-            self.build_data_display(self.master_df)
-
-    def __dialog(self, msg):
-        self.parent_frame.dialog(msg)
 
     def taiga_data_ready(self) -> bool:
         return self.sheet_master_df is not None

@@ -16,16 +16,15 @@ class RecDB:
     def __connect_or_create_db(self, filepath):
         try:
             uri = 'file:{}?mode=rw'.format(pathname2url(filepath))
-            self.conn = db.connect(uri, uri=True)
+            self.conn = db.connect(uri, check_same_thread=False, uri=True)
             self.cursor = self.conn.cursor()
         except db.OperationalError:
+            self.conn = db.connect(filepath, check_same_thread=False)
+            self.cursor = self.conn.cursor()
             with open('./models/database/schema.sql', 'r') as sql_schema:
                 sql_script = sql_schema.read()
-
-            self.conn = db.connect(filepath)
-            self.cursor = self.conn.cursor()
-            self.cursor.executescript(sql_script)
-            self.conn.commit()
+                self.cursor.executescript(sql_script)
+                self.conn.commit()
             
     def close(self):
         if self.conn:
@@ -34,13 +33,112 @@ class RecDB:
     def validate_table_exists(self, table_name) -> bool:
         self.cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
-            (table_name)
+            ([table_name])
         )
         result = self.cursor.fetchone()
         return result is not None
+
+    def insert(self, table, data):
+        if self.validate_table_exists(table):
+            columns = ', '.join(data.keys())
+            placeholders = ', '.join('?' * len(data))
+            query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders});"
+            self.cursor.execute(query, tuple(data.values()))
+            self.conn.commit()
+            return True
+        return False
+
+    def update(self, table, data, conditions=None):
+        if self.validate_table_exists(table):
+            exe_args = tuple(data.values())
+
+            set_placeholder = ''
+            for key in data.keys():
+                if set_placeholder == '':
+                    set_placeholder += f'{key} = ?'
+                else:
+                    set_placeholder += f', {key} = ?'
+
+            conditions_placeholder = ''
+            if conditions is not None:
+                conditions_placeholder = ' WHERE '
+                for key in conditions.keys():
+                    if conditions_placeholder == ' WHERE ':
+                        conditions_placeholder += f'{key} = ?'
+                    else:
+                        conditions_placeholder += f'AND {key} = ?'
+                
+                exe_args = exe_args + tuple(conditions.values())
+
+            query = f"UPDATE {table} SET {set_placeholder}{conditions_placeholder};"
+            self.cursor.execute(query, exe_args or ())
+            self.conn.commit()
+            return True
+        return False
+
+    def remove(self, table, conditions):
+        if self.validate_table_exists(table):
+            conditions_placeholder = ' WHERE '
+            for key in conditions.keys():
+                if conditions_placeholder == ' WHERE ':
+                    conditions_placeholder += f'{key} = ?'
+                else:
+                    conditions_placeholder += f'AND {key} = ?'
+            
+            query = f"DELETE FROM {table}{conditions_placeholder};"
+            self.cursor.execute(query, tuple(conditions.values()))
+            self.conn.commit()
+            return True
+        return False
+
+    def select(self, table, cols=None, conditions=None):
+        if self.validate_table_exists(table):
+            exe_args = None
+            if cols is not None:
+                columns = ', '.join(cols)
+            else:
+                columns = '*'
+
+            conditions_placeholder = ''
+            if conditions is not None:
+                conditions_placeholder = ' WHERE '
+                for key in conditions.keys():
+                    if conditions_placeholder == ' WHERE ':
+                        conditions_placeholder += f'{key} = ?'
+                    else:
+                        conditions_placeholder += f'AND {key} = ?'
+
+                exe_args = tuple(conditions.values())
+            
+            query = f"SELECT {columns} FROM {table}{conditions_placeholder};"
+            self.cursor.execute(query, exe_args or ())
+            return self.cursor.fetchall()
+        return None
     
+    def select_joined(self, base_table, join_clauses, select_columns='*', conditions=None, params=None):
+        query = f"SELECT {select_columns} FROM {base_table}"
+
+        for join_type, table, on_condition in join_clauses:
+            query += f" {join_type.upper()} JOIN {table} ON {on_condition}"
+
+        if conditions:
+            query += f" WHERE {conditions}"
+
+        try:
+            self.cursor.execute(query, params or ())
+            return self.cursor.fetchall()
+        except Exception as e:
+            exc_type = type(e),__name__
+            exc_cause = 'No Cause/Context Provided'
+            cause = e.__cause__ or e.__context__
+            if cause:
+                exc_cause = str(cause)
+            
+            print(f'{exc_type}: {exc_cause}')
+            return None
+
     def inv_val_to_none(self, df: pd.DataFrame):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
     
     def table_to_df(self, table_name) -> pd.DataFrame:
         df = None
@@ -49,48 +147,29 @@ class RecDB:
             df = pd.read_sql_query(query, self.conn)
             self.inv_val_to_none(df)
         return df
+
+    def df_to_table(self, table, df: pd.DataFrame):
+        if self.validate_table_exists(table):
+            try:
+                df.to_sql(table, self.conn, if_exists='replace', index=False)
+                return True
+            except:
+                return False
+        return False
+
+    def encrypt(self, items: tuple[str | None]):
+        results = []
+        for item in items:
+            results.append(base64.b64encode(item.encode('utf-8')) if item is not None and item != '' else 'NULL')
+        return tuple(results)
     
-    def remove_entries_by_id(self, table_name, id_list):
-        if self.validate_table_exists(table_name) and id_list:
-            id_str = ", ".join(["?"] * len(id_list))
-            self.cursor.execute(
-                "DELETE FROM ? WHERE id IN (?);",
-                (table_name, id_str)
-            )
-            num_rows_del = self.cursor.rowcount
-            self.conn.commit()
-            return num_rows_del
-        return 0
-    
-    def update_table_with_df(self, table_name, df: pd.DataFrame):
-        if self.validate_table_exists(table_name) and df:
-            df.to_sql(table_name, self.conn, if_exists='replace', index=False)
-        self.conn.commit()
+    def decrypt(self, items: tuple[str | None]):
+        results = []
+        for item in items:
+            results.append(base64.b64decode(item).decode('utf-8') if item is not None and item != '' else None)
+        return tuple(results)
 
-    def encrypt(self, val: str):
-        return base64.b64encode(val.encode('utf-8')) if val is not None and val != '' else 'NULL'
-    
-    def decrypt(self, val: str):
-        return base64.b64decode(val).decode('utf-8') if val is not None and val != '' else None
-
-    def update_user_credentials(self, site_name, username=None, password=None, token=None):
-        encrypted_uname = self.encrypt(username) 
-        encrypted_pwd = self.encrypt(password) 
-        encrypted_token = self.encrypt(token) 
-
-        self.cursor.execute(
-            "UPDATE sites SET user_name=?, user_pwd=?, site_token=? WHERE site_name=?;",
-            (encrypted_uname, encrypted_pwd, encrypted_token, site_name)
-        )
-
-        print('Test1')
-        self.conn.commit()
-
-    def get_user_credential_for_site(self, site_name):
-        query = f"SELECT user_name, user_pwd, site_token FROM sites WHERE site_name='{site_name}';"
-        self.cursor.execute(query)
-        encrypted_uname, encrypted_pwd, encrypted_token = self.cursor.fetchall()[0]
-        uname = self.decrypt(encrypted_uname)
-        pwd = self.decrypt(encrypted_pwd)
-        token = self.decrypt(encrypted_token)
-        return uname, pwd, token
+    def get_avail_taiga_projects(self):
+        cols = ['id', 'project_name', 'project_owner']
+        projects = self.select('taiga_projects', cols)[0]
+        return projects

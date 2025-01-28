@@ -2,57 +2,35 @@ import io
 import pandas as pd
 import numpy as np
 import requests
+import traceback
 
 class TaigaProjectServicer:
-    base_url = "https://api.taiga.io/api/v1"
-    username = None
-    password = None
-    user_id = None
+    def __init__(self, username=None, password=None):
+        self.base_url = "https://api.taiga.io/api/v1"
+        self.username = None
+        self.password = None
+        self.user_id = None
 
-    token = None
-    token_set_and_verified = False
-    
-    project_id = None
-    project_name = None
-    project_owner = None
-    project_details_set = False
+        self.token = None
+        self.token_set_and_verified = False
 
-    api_import_ready = False
-
-    def __init__(self, username=None, password=None, project_id=None, project_name=None, project_owner=None):
         if username and password:
-            self.init_with_login_credentials(username, password)
-            self._extract_user_id()
-        if project_id and project_name and project_owner:
-            self.init_project_details(project_id, project_name, project_owner)
-        if not self.project_details_set:
-            self._extract_projects()
+            self.username = username
+            self.password = password
+            token = self._refresh_token()
+            if token:
+                self.set_token(token)
+                self._extract_user_id()
 
-    def init_with_login_credentials(self, username, password):
-        self.username = username
-        self.password = password
-        token = self._refresh_token()
-        if token:
-            self.set_token(token)
-
-    def init_with_comp_credentials(self, username, password, token):
+    def update_user_credentials(self, username, password, token):
         self.username = username
         self.password = password
         self.set_token(token)
         self._extract_user_id()
-        self._extract_projects()
 
     def set_token(self, token):
         self.token = token
         self.token_set_and_verified = True
-        self._validate_project_import_ready()
-
-    def init_project_details(self, project_id, project_name, project_owner):
-        self.project_id = project_id
-        self.project_name = project_name
-        self.project_owner = project_owner
-        self.project_details_set = True
-        self._validate_project_import_ready()
 
     def _refresh_token(self):
         url = f'{self.base_url}/auth'  # Change this to your Taiga API URL if self-hosted
@@ -67,16 +45,12 @@ class TaigaProjectServicer:
             return res.json().get("auth_token")
         else:
             return None
-        
-    def get_available_projects(self):
-        if not self.project_list:
-            self._extract_projects()
-        return self.project_list
-        
-    def set_project_by_name(self, project_name):
-        for project in self.project_list:
-            if project['name'] == project_name:
-                self.init_project_details(project['id'], project['name'], project['owner'])
+    
+    def get_credentials(self):
+        return self.username, self.password
+    
+    def token_set(self):
+        return self.token_set_and_verified
     
     ## API CALL METHODS
     ##==================================================================================================================
@@ -94,46 +68,50 @@ class TaigaProjectServicer:
             if res.status_code == 200:
                 self.user_id = res.json().get("id")
 
-    def _extract_projects(self):
-        project_list = None
-
-
+    def get_watched_projects(self):
         if self.user_id and self.token_set_and_verified:
             url = f'{self.base_url}/users/{self.user_id}/watched'
             res = self._make_get_api_req(url, self._api_token_header())
             if res.status_code == 200:
-                project_list = []
+                projects_data = []
                 for project in res.json():
                     try:
                         if project.get("type") == 'project':
-                            print(project)
-                            project_list.append({
-                                'id': project.get("id"),
-                                'name': project.get("name"),
-                                'owner': project.get("slug").split("-")[0]
-                            })
-                        print('TEST #')
-                    except: 
-                        print('EXCEPTION')
+                            p_id = project.get("id")
+                            p_name = project.get("name")
+                            p_owner = project.get("slug").split("-")[0]
+                            p_data = {
+                                'id': p_id,
+                                'project_name': p_name,
+                                'project_owner': p_owner,
+                                'is_selected': 0
+                            }
+                            projects_data.append(p_data)
+                    except Exception as e:
+                        exc_type = type(e),__name__
+                        exc_cause = 'No Cause/Context Provided'
+                        cause = e.__cause__ or e.__context__
+                        if cause:
+                            exc_cause = str(cause)
+
+                        print(f'{exc_type}: {exc_cause}')
         else:
             print('ELSE')
-
-        self.project_list = project_list
+        return pd.DataFrame(data=projects_data, columns=['id', 'project_name', 'project_owner', 'is_selected'])
         
-
     def _make_post_api_req(self, url, header=None, data=None):
         res = requests.post(url=url, headers=header, json=data)
         if res.status_code == 200:
             return res
         else:
             self.token_set_and_verified = False
-            self.api_import_ready = False
             if res.status_code == 401:
                 token = self._refresh_token()
                 if token:
                     self.set_token(token)
-                if self.api_import_ready:
                     return requests.post(url=url, headers=self._api_token_header(), json=data)
+                else: 
+                    return res
     
     def _make_get_api_req(self, url, header, data=None):
         res = requests.get(url=url, headers=header, data=data)
@@ -141,25 +119,13 @@ class TaigaProjectServicer:
             return res
         else:
             self.token_set_and_verified = False
-            self.api_import_ready = False
             if res.status_code == 401:
                 token = self._refresh_token()
                 if token:
                     self.set_token(token)
-                if self.api_import_ready:
                     return requests.get(url=url, headers=self._api_token_header(), json=data)
-
-    def _validate_project_import_ready(self):
-        if self.token_set_and_verified and self.project_details_set:
-            try:
-                url = f'{self.base_url}/projects/{self.project_id}'
-                res = self._make_get_api_req(url, self._api_token_header())
-                if res.status_code == 200:
-                    self.api_import_ready = True
                 else:
-                    self.api_import_ready = False
-            except:
-                self.api_import_ready = False
+                    return res
         
     def _format_sprint_df(self, sprints : pd.DataFrame) -> pd.DataFrame:
         if sprints is not None:
@@ -204,6 +170,7 @@ class TaigaProjectServicer:
     def _format_task_df(self, tasks_df : pd.DataFrame) -> pd.DataFrame:
         if tasks_df is not None:
             tasks_df = tasks_df.set_axis(['id', 'task_num', 'is_complete', 'us_id', 'assignee', 'task_subject'], axis=1)
+            tasks_df.insert(2, 'is_coding', False)
             self._inv_val_to_none(tasks_df)
             tasks_df['us_id'] = tasks_df['us_id'].astype(pd.Int64Dtype())
             tasks_df.dropna(inplace=True, how='all')
@@ -212,9 +179,9 @@ class TaigaProjectServicer:
         return tasks_df
 
     def _inv_val_to_none(self, df: pd.DataFrame):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
     
-    def _import_data_by_api(self) -> list[pd.DataFrame]:
+    def import_data_by_api(self, project_id) -> list[pd.DataFrame]:
         def import_data(url):
             header = {
                 "Content-Type": "application/json",
@@ -224,16 +191,23 @@ class TaigaProjectServicer:
             return self._make_get_api_req(url, header)
         
         def import_sprint_data() -> pd.DataFrame:
-            res = import_data(f'{self.base_url}/milestones?project={self.project_id}')
+            res = import_data(f'{self.base_url}/milestones?project={project_id}')
             if res.status_code == 200:
                 try:
                     raw_sprints_df = pd.json_normalize(res.json())
                     return self._format_sprint_df(raw_sprints_df[['id', 'name', 'estimated_start', 'estimated_finish']])
-                except: pass
+                except Exception as e:
+                    exc_type = type(e),__name__
+                    exc_cause = 'No Cause/Context Provided'
+                    cause = e.__cause__ or e.__context__
+                    if cause:
+                        exc_cause = str(cause)
+
+                    print(f'{exc_type}: {exc_cause}')
             return None
 
         def import_member_data() -> pd.DataFrame:
-            res = import_data(f'{self.base_url}/projects/{self.project_id}')
+            res = import_data(f'{self.base_url}/projects/{project_id}')
             if res.status_code == 200:
                 try:
                     raw_members_df = pd.json_normalize(res.json().get('members'))
@@ -242,10 +216,13 @@ class TaigaProjectServicer:
                     headers = ['id', 'username']
                     data = []
 
+                    print(updated_raw_df)
+
                     for index, row in updated_raw_df.iterrows():
+                        print(row.values)
                         mem_id = row['id']
                         uname = row['username']
-                        fname = row['full_name']
+                        fname = row['full_name_display']
 
                         username = uname
                         if pd.notna(uname):
@@ -254,20 +231,34 @@ class TaigaProjectServicer:
                         data.append([mem_id, username])
                     members_df = pd.DataFrame(columns=headers, data=data)
                     return self._format_members_df(members_df)
-                except: pass
+                except Exception as e:
+                    exc_type = type(e),__name__
+                    exc_cause = 'No Cause/Context Provided'
+                    cause = e.__cause__ or e.__context__
+                    if cause:
+                        exc_cause = str(cause)
+
+                    print(f'{exc_type}: {exc_cause}')
             return None
             
         def import_us_data() -> pd.DataFrame:
-            res = import_data(f'{self.base_url}/userstories?project={self.project_id}')
+            res = import_data(f'{self.base_url}/userstories?project={project_id}')
             if res.status_code == 200:
                 try:
                     raw_us_df = pd.json_normalize(res.json())
                     return self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'milestone', 'total_points']])
-                except: pass
+                except Exception as e:
+                    exc_type = type(e),__name__
+                    exc_cause = 'No Cause/Context Provided'
+                    cause = e.__cause__ or e.__context__
+                    if cause:
+                        exc_cause = str(cause)
+                    
+                    print(f'{exc_type}: {exc_cause}')
             return None
             
         def import_task_data(member_df) -> pd.DataFrame:
-            res = import_data(f'{self.base_url}/tasks?project={self.project_id}')
+            res = import_data(f'{self.base_url}/tasks?project={project_id}')
             if res.status_code == 200:
                 try:
                     raw_task_df = pd.json_normalize(res.json())
@@ -284,7 +275,14 @@ class TaigaProjectServicer:
                         us = row['user_story']
                         try:
                             username = member_df.loc[member_df['id'] == mem_id, 'username'].values[0]
-                        except:
+                        except Exception as e:
+                            exc_type = type(e),__name__
+                            exc_cause = 'No Cause/Context Provided'
+                            cause = e.__cause__ or e.__context__
+                            if cause:
+                                exc_cause = str(cause)
+
+                            print(f'{exc_type}: {exc_cause}')
                             username = None
                         subject = row['subject']
 
@@ -292,15 +290,21 @@ class TaigaProjectServicer:
                         data.append(row_data)
                     tasks_df = pd.DataFrame(columns=headers, data=data)
                     return self._format_task_df(tasks_df)
-                except: pass
+                except Exception as e:
+                    exc_type = type(e),__name__
+                    exc_cause = 'No Cause/Context Provided'
+                    cause = e.__cause__ or e.__context__
+                    if cause:
+                        exc_cause = str(cause)
+
+                    print(f'{exc_type}: {exc_cause}')
             return None
 
-        members_df = sprints_df = us_df = task_df = None
-        if self.api_import_ready:
-            sprints_df = import_sprint_data()
-            members_df = import_member_data()
-            us_df = import_us_data()
-            task_df = import_task_data(members_df)
+        sprints_df = import_sprint_data()
+        members_df = import_member_data()
+        us_df = import_us_data()
+        task_df = import_task_data(members_df)
+
         return sprints_df, members_df, us_df, task_df
     
     def _import_data_by_urls(self, us_url, task_url):
