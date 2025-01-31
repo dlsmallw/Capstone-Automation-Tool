@@ -8,6 +8,7 @@ import numpy as np
 import threading
 import requests
 import time
+import trace
 
 from models.DataManager import DataController
 from components.CustomComponents import CustomDateEntry, CustomOptionMenu
@@ -22,40 +23,24 @@ class TaigaFrame(ttk.Frame):
         self.parent_frame = parent
         self.root = parent.master
 
-        self.config_frame = ConfigFrame(self, dc)
-        self.data_frame = DataFrame(self, dc)
+        self.config_panel = ConfigFrame(self, dc)
+        self.data_panel = DataFrame(self, dc)
 
-        self.config_frame.pack(fill='x', anchor='n', pady=(0, 10))
-        self.data_frame.pack(fill='both', expand=True, anchor='n')
+        self.config_panel.pack(fill='x', anchor='n', pady=(0, 10))
+        self.data_panel.pack(fill='both', expand=True, anchor='n')
         self.refresh()
+
+        if self.dc.taiga_data_ready():
+            self.data_panel.build_dataframe()
+
+    def setup_dataframe(self):
+        self.data_panel.build_dataframe()
 
     def refresh(self):
         self.root.update()
-        self.root.after(1000,self.refresh)
-
-    def start_file_import_thread(self):
-        threading.Thread(target=self.import_from_files).start()
-
-    def start_api_import_thread(self):
-        threading.Thread(target=self.import_from_api).start()
-    
-    
-
-    def taiga_data_ready(self) -> bool:
-        return self.data_frame.taiga_data_ready()
-    
-    def get_taiga_df(self) -> pd.DataFrame:
-        return self.data_frame.get_taiga_df()
-    
-    def get_members(self) -> list:
-        return self.data_frame.get_members()
-    
-    def get_sprints(self) -> list:
-        return self.data_frame.get_sprints()
+        self.root.after(1000, self.refresh)
     
 class ConfigFrame(ttk.Frame):
-    
-
     def __init__(self, parent: TaigaFrame, dc: DataController):
         super().__init__(parent)
         self.is_linked = False
@@ -86,39 +71,75 @@ class ConfigFrame(ttk.Frame):
         temp_lbl = ttk.Label(self, text='Handling Taiga API Import Call, Please Wait...')
         temp_lbl.pack()
 
-        try:
-            self.dc.taiga_import_by_api()
-        except:
-            messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
-        finally:
-            temp_lbl.destroy()
+        result, msg = self.dc.taiga_import_by_api()
+        # messagebox.showinfo(result, msg)
+        self.parent_frame.setup_dataframe()
+        temp_lbl.destroy()
 
-    def import_by_files(self, us_fp, task_fp):
-        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga File Import Call, Please Wait...')
-        temp_lbl.pack()
+        # try:
+        #     result, msg = self.dc.taiga_import_by_api()
 
-        try:
-            self.dc.taiga_import_by_files(us_fp, task_fp)
-            df = self.dc.get_taiga_master_df()
-            self.data_frame.build_data_display(df)
-        except:
-            messagebox.showerror('ERROR', 'Failed to import Taiga data by file')
-        finally:
-            temp_lbl.destroy()
+        #     if result == 'Success':
+        #         messagebox.showinfo(result, msg)
+        #         self.parent_frame.setup_dataframe()
+        #         # try:
+        #         #     self.parent_frame.setup_dataframe()
+        #         # except Exception as e:
+        #         #     messagebox.showerror('ERROR', e)
+        #     else:
+        #         messagebox.showerror(result, msg)
+        # except:
+        #     messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
+        # finally:
+        #     temp_lbl.destroy()
 
     def import_by_csv_urls(self, us_url, task_url):
-        temp_lbl = ttk.Label(self.config_frame, text='Handling Taiga API Import Call, Please Wait...')
+        temp_lbl = ttk.Label(self, text='Handling Taiga API Import Call, Please Wait...')
         temp_lbl.pack()
 
         try:
-            self.dc.taiga_import_by_urls(us_url, task_url)
-            df = self.dc.get_taiga_master_df()
-            self.data_frame.build_data_display(df)
+            result, msg = self.dc.taiga_import_by_urls(us_url, task_url)
+
+            if result == 'Success':
+                messagebox.showinfo(result, msg)
+                self.parent_frame.setup_dataframe()
+                # try:
+                #     self.parent_frame.setup_dataframe()
+                # except Exception as e:
+                #     messagebox.showerror('ERROR', e)
+            else:
+                messagebox.showerror(result, msg)
         except:
             messagebox.showerror('ERROR', 'Failed to import Taiga data by csv URLs')
         finally:
             temp_lbl.destroy()
 
+    def import_by_files(self, us_fp, task_fp):
+        temp_lbl = ttk.Label(self, text='Handling Taiga File Import Call, Please Wait...')
+        temp_lbl.pack()
+
+        result, msg = self.dc.taiga_import_by_files(us_fp, task_fp)
+        self.parent_frame.setup_dataframe()
+        temp_lbl.destroy()
+
+        # try:
+        #     result, msg = self.dc.taiga_import_by_files(us_fp, task_fp)
+
+        #     if result == 'Success':
+
+        #         self.parent_frame.setup_dataframe()
+        #         try:
+        #             self.parent_frame.setup_dataframe()
+        #         except Exception as e:
+        #             messagebox.showerror('ERROR', e)
+
+        #         messagebox.showinfo(result, msg)
+        #     else:
+        #         messagebox.showerror(result, msg)
+        # except:
+        #     messagebox.showerror('ERROR', 'Failed to import Taiga data by file')
+        # finally:
+        #     temp_lbl.destroy()
 
     def ready_for_project_sel(self):
         self.project_link_btn['state'] = 'normal'
@@ -129,7 +150,7 @@ class ConfigFrame(ttk.Frame):
         prompt_window.geometry("300x150")
 
         # Label for the prompt text
-        label = tk.Label(prompt_window, text=prompt_text)
+        label = ttk.Label(prompt_window, text=prompt_text)
         label.pack(pady=10)
 
         # Entry widget for user input
@@ -151,7 +172,7 @@ class ConfigFrame(ttk.Frame):
         submit_button.pack(pady=10)
 
     def _generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
-        field_lbl = tk.Label(field_frame, text=lbl_str, anchor='e')
+        field_lbl = ttk.Label(field_frame, text=lbl_str, anchor='e')
         field_lbl.grid(row=row, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=row, column=1, padx=(1, 2), sticky='nsew')
         if btn_obj is not None:
@@ -159,61 +180,9 @@ class ConfigFrame(ttk.Frame):
         return target_obj
     
     def _build_api_form(self, parent) -> ttk.Frame:
-        ## Nested Methods
+
+        ## Prompt Methods
         ##====================================================================================================================================================
-        def update_acct_fields(username_str, btn_str):
-            self.username_strval.set(username_str)
-            self.link_btn_strval.set(btn_str)
-
-        def update_status_fields(link_status_str):
-            self.link_status_strval.set(link_status_str)
-
-        def update_message_field(msg):
-            self.message_strval.set(msg)
-
-        def not_authed_or_linked():
-            update_acct_fields('No Linked User', 'Link Account')
-            update_status_fields('Not Linked')
-            update_message_field('A Taiga Account Must Be Linked')
-
-        def authed_waiting_for_proj_sel():
-            update_status_fields('Success')
-            self.project_sel_btn_strval.set('Link Project')
-            update_message_field('Account Linked - Waiting for Project List...')
-
-        def authed_and_linked(project):
-            update_status_fields('Success')
-            self.project_sel_btn_strval.set('Change Linked Project')
-            self.project_link_btn['state'] = 'normal'
-            self.import_from_api_btn['state'] = 'normal'
-            update_message_field(f"Project '{project}' selected - Ready to make Taiga API calls")
-
-        def authenticate_with_credentials(username, password):
-            result, msg = self.dc.authenticate_with_taiga(username=username, password=password)
-            if result == 'Success':
-                project = self.dc.get_linked_project()[1]
-                if project is not None:
-                    authed_and_linked(project)
-                else:
-                    th1 = threading.Thread(target=wait_for_projects)
-                    authed_waiting_for_proj_sel()
-                    th1.start()
-            else:
-                update_message_field(msg)
-
-        def initialize_fields():
-            username, password = self.dc.load_taiga_credentials()
-
-            if username and password:
-                update_acct_fields(username, 'Update Credentials')
-                authenticate_with_credentials(username, password)
-            else:
-                not_authed_or_linked()
-
-        def wait_for_projects():
-            self.dc.wait_for_projects()
-            update_message_field('Account Linked - Project List Ready to Select From...')
-            self.project_link_btn['state'] = 'normal'
 
         def open_taiga_link_window(btn_lbl='Link'):
             # Create a new Toplevel window for the login form
@@ -221,7 +190,6 @@ class ConfigFrame(ttk.Frame):
             link_window.title("Taiga Login")
             link_window.geometry("300x200")
             link_window.wm_protocol("WM_DELETE_WINDOW", link_window.quit)
-
             curr_uname, curr_pwd = self.dc.load_taiga_credentials()
 
             # Function to authenticate with Taiga API
@@ -231,27 +199,23 @@ class ConfigFrame(ttk.Frame):
 
                 result, msg = self.dc.authenticate_with_taiga(username, password)
                 if result == 'Success':
+                    auth_not_linked_ui_config(username)
                     th1 = threading.Thread(target=wait_for_projects)
-                    authed_waiting_for_proj_sel()
-                    update_acct_fields(username, 'Update Credentials')
-                    update_status_fields('Success')
-                    update_message_field('Account Linked - Waiting for Project List...')
                     th1.start()
                     if threading.currentThread != th1:
                         messagebox.showinfo(result, 'Successfully linked the Taiga account', parent=link_window)
                         link_window.destroy()
-                    
                 else:
                     messagebox.showerror(result, msg, parent=link_window)
 
             # Username Label and Entry
-            username_label = tk.Label(link_window, text="Username:")
+            username_label = ttk.Label(link_window, text="Username:")
             username_label.pack(pady=5)
             username_entry = tk.Entry(link_window, width=30)
             username_entry.pack(pady=5)
 
             # Password Label and Entry
-            password_label = tk.Label(link_window, text="Password:")
+            password_label = ttk.Label(link_window, text="Password:")
             password_label.pack(pady=5)
             password_entry = tk.Entry(link_window, show="*", width=30)
             password_entry.pack(pady=5)
@@ -266,9 +230,6 @@ class ConfigFrame(ttk.Frame):
             link_button = ttk.Button(link_window, text=btn_lbl, command=authenticate_with_taiga)
             link_button.pack(pady=10)
 
-        def import_from_api():
-            threading.Thread(target=self.import_by_api).start()
-
         def open_project_sel_prompt():
             # Create a new Toplevel window for the login form
             project_window = tk.Toplevel()
@@ -281,8 +242,9 @@ class ConfigFrame(ttk.Frame):
                 result, msg = self.dc.select_taiga_project(project)
                 
                 if result == 'Success':
+                    self.project_set = True
                     messagebox.showinfo(result, msg, parent=project_window)
-                    authed_and_linked(project)
+                    auth_and_linked_ui_config(project)
                     project_window.destroy()
                 else:
                     messagebox.showerror(result, msg, parent=project_window)
@@ -293,7 +255,7 @@ class ConfigFrame(ttk.Frame):
             proj_opts = self.dc.get_available_projects()
 
             # Username Label and Entry
-            project_sel_lbl = tk.Label(project_window, text="Select a Project To Link:")
+            project_sel_lbl = ttk.Label(project_window, text="Select a Project To Link:")
             project_sel_lbl.pack(pady=5)
             project_opt_sel = CustomOptionMenu(project_window, proj_sel_strvar, *proj_opts)
             project_opt_sel.pack(pady=5)
@@ -302,12 +264,91 @@ class ConfigFrame(ttk.Frame):
             link_project_button = ttk.Button(project_window, text='Submit', command=select_project)
             link_project_button.pack(pady=10)
 
-        ## Function logic
+        ## UI Modification Methods
         ##====================================================================================================================================================
+
+        def initialize_fields():
+            default_ui_config()
+            username, password = self.dc.load_taiga_credentials()
+            if username and password:
+                threading.Thread(target=lambda: authenticate_with_credentials(username, password)).start()
+
+        def update_username_field(username_str):
+            self.username_strval.set(username_str)
+
+        def update_acct_link_btn(btn_str):
+            self.link_btn_strval.set(btn_str)
+
+        def update_auth_status_field(status_str):
+            self.link_status_strval.set(status_str)
+
+        def update_proj_sel_btn(btn_str):
+            self.project_sel_btn_strval.set(btn_str)
+
+        def update_message_field(msg):
+            self.message_strval.set(msg)
+
+        def default_ui_config():
+            update_username_field('No Linked User')
+            update_acct_link_btn('Link Account')
+            update_auth_status_field('No Account Linked')
+            update_proj_sel_btn('Link Project')
+            update_message_field('A Taiga Account Must Be Linked')
+            self.project_link_btn['state'] = 'disabled'
+            self.import_from_api_btn['state'] = 'disabled'
+            
+        def auth_not_linked_ui_config(username):
+            update_username_field(username)
+            update_acct_link_btn('Update Account Details')
+            update_auth_status_field('Account Authenticated')
+            update_message_field('Account Authenticated - Waiting for Project List...')
+            self.import_from_api_btn['state'] = 'disabled'
+
+        def auth_and_linked_ui_config(project):
+            update_proj_sel_btn('Change Project')
+            update_message_field(f"Project '{project}' selected - Ready to make Taiga API calls")
+            self.import_from_api_btn['state'] = 'normal'
+
+        ## Nested Functionality
+        ##====================================================================================================================================================
+
+        def import_from_api():
+            threading.Thread(target=self.import_by_api).start()
+
+        def authenticate_with_credentials(username, password):
+            result, msg = self.dc.authenticate_with_taiga(username=username, password=password)
+            if result == 'Success':
+                self.is_linked = True
+                auth_not_linked_ui_config(username)
+                project = self.dc.get_linked_project()[1]
+                projects = self.dc.get_available_projects()
+                if project is not None and project in projects:
+                    auth_and_linked_ui_config(project)
+                    if len(projects) > 1:
+                        self.project_set = True
+                        self.project_link_btn['state'] = 'normal'
+                else:
+                    wait_for_projects()
+            else:
+                update_message_field(msg)
+
+        def wait_for_projects():
+            self.dc.wait_for_projects()
+            if self.dc.get_num_projects() > 0:
+                update_message_field('Account Linked - Project List Ready to Select From...')
+                self.project_link_btn['state'] = 'normal'
+            else:
+                project = self.dc.get_available_projects()[0]
+                self.project_set = True
+                self.dc.select_taiga_project(project)
+                auth_and_linked_ui_config(project)
+
+        ## Frame Building logic
+        ##====================================================================================================================================================
+
         widget_frame = ttk.Frame(parent)
 
         api_config_frame_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Import Using API{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge', anchor='center')
-        import_from_api_btn = ttk.Button(widget_frame, text='Import Data from API', command=import_from_api)
 
         details_frame = ttk.Frame(widget_frame)
         acct_frame = ttk.Frame(details_frame, borderwidth=2, relief='ridge')
@@ -344,7 +385,7 @@ class ConfigFrame(ttk.Frame):
         
         message_field = ttk.Label(details_frame, textvariable=self.message_strval, font=('Arial', 8, 'normal', 'italic'), padding=3, borderwidth=2, relief='ridge', anchor='center')
 
-        self.import_from_api_btn = ttk.Button(widget_frame, text='Import by API', command=import_from_api, state='disabled')
+        self.import_from_api_btn = ttk.Button(widget_frame, text='Import Data from API', command=import_from_api, state='disabled')
         
         ## Configure Acct Details Frame
         acct_frame_lbl.pack(fill='x', pady=(0, 6))
@@ -366,7 +407,6 @@ class ConfigFrame(ttk.Frame):
         self.import_from_api_btn.pack()
 
         initialize_fields()
-
         return widget_frame
 
     def _build_csv_links_form(self, parent) -> ttk.Frame:
@@ -394,11 +434,33 @@ class ConfigFrame(ttk.Frame):
             prompt_title = f'Set/Update {'User Story' if type == 'us' else 'Task'} CSV Import URL'
             self.prompt_for_entry(prompt_title, 'Enter the URL:', set_url, [field, type])
 
+        def init_fields():
+            us_url = self.dc.get_taiga_us_csv_url()
+            task_url = self.dc.get_taiga_task_csv_url()
+
+            if us_url:
+                self.us_csv_url_strvar.set(us_url)
+            if task_url:
+                self.task_csv_url_strvar.set(task_url)
+
+            if self.us_csv_url_strvar != 'No URL Specified' and self.task_csv_url_strvar.get() != 'No URL Specified':
+                self.import_from_csv_url_btn['state'] = 'normal'
+
+            
+
+        def import_by_url():
+            us_url = self.us_csv_url_strvar.get()
+            task_url = self.task_csv_url_strvar.get()
+
+            if us_url and task_url:
+                threading.Thread(target=lambda: self.import_by_csv_urls(us_url, task_url)).start()
+
+
         ## Function logic
         ##====================================================================================================================================================
         widget_frame = ttk.Frame(parent)
 
-        csv_url_config_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV URLs{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        csv_url_config_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV URLs{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         csv_url_config_frame = ttk.Frame(widget_frame)
 
         self.us_csv_url_strvar = StringVar(value='No URL Specified')
@@ -408,60 +470,54 @@ class ConfigFrame(ttk.Frame):
                                     0, 
                                     'US Report CSV URL:', 
                                     16, 
-                                    tk.Label(csv_url_config_frame, textvariable=self.us_csv_url_strvar, anchor='w'), 
+                                    ttk.Label(csv_url_config_frame, textvariable=self.us_csv_url_strvar, anchor='w'), 
                                     ttk.Button(csv_url_config_frame, text='Set CSV URL', command=lambda: url_update_dialog(self.us_csv_url_strvar, 'us')))
         
         self._generate_field_obj(csv_url_config_frame, 
                                     1, 
                                     'Task Report CSV URL:', 
                                     16, 
-                                    tk.Label(csv_url_config_frame, textvariable=self.task_csv_url_strvar, anchor='w'), 
+                                    ttk.Label(csv_url_config_frame, textvariable=self.task_csv_url_strvar, anchor='w'), 
                                     ttk.Button(csv_url_config_frame, text='Set CSV URL', command=lambda: url_update_dialog(self.task_csv_url_strvar, 'task')))
         
 
         # Buttons for importing and exporting data
         btn_frame = ttk.Frame(widget_frame)
-        self.import_from_csv_url_btn = ttk.Button(btn_frame, text='Import from CSV URL', state='disabled', command=lambda: self.parent_frame.start_api_import_thread())
+        self.import_from_csv_url_btn = ttk.Button(btn_frame, text='Import from CSV URL', state='disabled', command=import_by_url)
         self.import_from_csv_url_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         csv_url_config_lbl.pack(fill='x', pady=(0, 8))
         csv_url_config_frame.pack(pady=(0, 4))
         btn_frame.pack()
 
-        us_url = self.dc.get_taiga_us_csv_url()
-        task_url = self.dc.get_taiga_task_csv_url()
-
-        if us_url is not None:
-            self.us_csv_url_strvar.set(us_url)
-        if task_url is not None:
-            self.task_csv_url_strvar.set(task_url)
+        init_fields()
 
         return widget_frame
 
     def _build_file_form(self, parent) -> ttk.Frame:
         ## Nested Methods
         ##====================================================================================================================================================
-        def file_select(self, field: StringVar, type: str):
+        def file_select(field: StringVar):
             fp = filedialog.askopenfilename().strip()
 
             if fp is not None and fp != '':
-                if type == 'us':
-                    field.set(fp)
-                    self.dc.set_us_fp(fp)
-                elif type == 'task':
-                    field.set(fp)
-                    self.dc.set_task_fp(fp)
-                else:
-                    return
+                field.set(fp)
 
-                if self.us_fp_strval.get() != 'No File Selected' and self.task_fp_strval.get() != 'No File Selected':
-                    self.import_data_from_file_btn['state'] = 'normal'
+            if self.us_fp_strval.get() != 'No File Selected' and self.task_fp_strval.get() != 'No File Selected':
+                self.import_data_from_file_btn['state'] = 'normal'
+
+        def import_by_file():
+            us_fp = self.us_fp_strval.get()
+            task_fp = self.task_fp_strval.get()
+
+            if us_fp and task_fp:
+                threading.Thread(target= lambda: self.import_by_files(us_fp, task_fp)).start()
 
         ## Function Logic
         ##====================================================================================================================================================
 
         widget_frame = ttk.Frame(parent)
-        file_sel_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV Files{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        file_sel_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV Files{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         
         fp_sel_frame = ttk.Frame(widget_frame)
 
@@ -472,20 +528,20 @@ class ConfigFrame(ttk.Frame):
                                     0, 
                                     'US Report Filepath:', 
                                     16, 
-                                    tk.Label(fp_sel_frame, textvariable=self.us_fp_strval, anchor='w'), 
-                                    ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.us_fp_strval, 'us')))
+                                    ttk.Label(fp_sel_frame, textvariable=self.us_fp_strval, anchor='w'), 
+                                    ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.us_fp_strval)))
 
         # Task File Select
         self._generate_field_obj(fp_sel_frame, 
                                     1, 
                                     'Task Report Filepath:', 
                                     16, 
-                                    tk.Label(fp_sel_frame, textvariable=self.task_fp_strval, anchor='w'), 
-                                    ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.task_fp_strval, 'task')))
+                                    ttk.Label(fp_sel_frame, textvariable=self.task_fp_strval, anchor='w'), 
+                                    ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.task_fp_strval)))
 
         # Buttons for importing and exporting data
         btn_frame = ttk.Frame(widget_frame)
-        self.import_data_from_file_btn = ttk.Button(btn_frame, text='Import from Files', state='disabled', command=lambda: self.parent_frame.start_file_import_thread())
+        self.import_data_from_file_btn = ttk.Button(btn_frame, text='Import from Files', state='disabled', command=import_by_file)
         self.import_data_from_file_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         file_sel_lbl.pack(fill='x', pady=(0, 8))
@@ -494,22 +550,398 @@ class ConfigFrame(ttk.Frame):
 
         return widget_frame
     
-    
-    
 class DataFrame(ttk.Frame):
     def __init__(self, parent: TaigaFrame, dc: DataController):
         super().__init__(parent)
 
-        self.parent_frame : TaigaFrame = None
-        self.filter_panel : ttk.Frame = None
-        self.btn_frame : ttk.Frame = None
-        self.sheet : tks.Sheet = None
-        self.master_df : pd.DataFrame = None
-        self.sheet_master_df : pd.DataFrame = None
-        self.col_widths = None
+        self.us_df_master : pd.DataFrame = None         ## Primary DF
+        self.curr_us_df : pd.DataFrame = None           ## Current (unsaved) DF
+        self.tasks_df_master : pd.DataFrame = None      ## Primary DF
+        self.curr_tasks_df : pd.DataFrame = None        ## Current (unsaved) DF
 
-        self.dc = dc
+        self.sprints : list[str] = None  
+        self.members : list[str] = None  
+        self.user_stories : list[str] = None
+
+        self.us_table_frame : ttk.Frame = None
+        self.us_table_sheet : tks.Sheet = None
+        self.tasks_table_frame : ttk.Frame = None
+        self.tasks_table_sheet : tks.Sheet = None
+
+        self.data_frame : ttk.Frame = None
         self.parent_frame = parent
+        self.dc = dc
+
+    def pull_taiga_data(self):
+        self.us_df_master = self.dc.update_df(self.us_df_master, self.dc.get_us_df())
+        self.tasks_df_master = self.dc.update_df(self.tasks_df_master, self.dc.get_task_df(), 'id', ['task_num', 'us_num', 'is_complete', 'assignee', 'task_subject'])
+
+        self.curr_us_df = self.dc.update_df(self.curr_us_df, self.us_df_master)
+        self.curr_tasks_df = self.dc.update_df(self.curr_tasks_df, self.tasks_df_master, 'id', ['task_num', 'us_num', 'is_complete', 'assignee', 'task_subject'])
+
+        self.sprints = self.us_df_master['sprint'].dropna().drop_duplicates().to_list()
+        self.user_stories = self.tasks_df_master['us_num'].dropna().drop_duplicates().to_list()
+        self.members = self.tasks_df_master['assignee'].dropna().drop_duplicates().to_list()
+
+    def _inv_val_format(self, df: pd.DataFrame):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
+
+    def us_df_format(self, df : pd.DataFrame) -> pd.DataFrame:
+        df_copy = df.copy(deep=True)
+        self._inv_val_format(df_copy)
+        df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
+        df_copy['us_num'] = df_copy['us_num'].astype(pd.Int64Dtype())
+        df_copy['points'] = df_copy['points'].astype(pd.Int64Dtype())
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.BooleanDtype())
+        return df_copy
+
+    def tasks_df_to_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
+        df_copy = df.copy(deep=True)
+        self._inv_val_format(df_copy)
+        df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
+        df_copy['task_num'] = df_copy['task_num'].astype(pd.Int64Dtype())
+        df_copy['us_num'] = df_copy['us_num'].astype(pd.StringDtype())
+        df_copy['is_coding'] = df_copy['is_coding'].astype(pd.BooleanDtype())
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.StringDtype())
+
+        df_copy['us_num'].replace(pd.NA, 'Storyless', inplace=True)
+        df_copy['assignee'].replace(pd.NA, 'Unassigned', inplace=True)
+        df_copy['is_complete'].replace({'1': 'Complete', '0': 'In-process'}, inplace=True)
+        return df_copy
+
+    def tasks_df_from_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
+        df_copy = df.copy(deep=True)
+        self._inv_val_format(df_copy)
+        df_copy['us_num'].replace('Storyless', pd.NA, inplace=True)
+        df_copy['is_complete'].replace({'Complete': '1', 'In-process': '0'}, inplace=True)
+        df_copy['is_coding'].replace({'True': '1', 'False': '0'}, inplace=True)
+        df_copy['assignee'].replace('Unassigned', pd.NA, inplace=True)
+
+        df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
+        df_copy['task_num'] = df_copy['task_num'].astype(pd.Int64Dtype())
+        df_copy['us_num'] = df_copy['us_num'].astype(pd.Int64Dtype())
+        df_copy['is_coding'] = df_copy['is_coding'].astype(pd.BooleanDtype())
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.Int64Dtype())
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.BooleanDtype())
+        return df_copy
+    
+    def us_df_from_sheet(self) -> pd.DataFrame:
+        sheet = self.us_table_sheet
+        if sheet:
+            headers = sheet.headers()
+            num_rows = sheet.get_total_rows()
+
+            data = None
+            if num_rows > 0:
+                if sheet.get_total_rows() == 1:
+                    data = []
+                    data.append(sheet.get_data())
+                else:
+                    data = sheet.get_data()
+
+            df = pd.DataFrame(data=data, columns=headers)
+            return self.us_df_format(df)
+    
+    def task_df_from_sheet(self) -> pd.DataFrame:
+        sheet = self.tasks_table_sheet
+        if sheet:
+            headers = sheet.headers()
+            num_rows = sheet.get_total_rows()
+
+            data = None
+            if num_rows > 0:
+                if sheet.get_total_rows() == 1:
+                    data = []
+                    data.append(sheet.get_data())
+                else:
+                    data = sheet.get_data()
+
+            df = pd.DataFrame(data=data, columns=headers)
+            return self.tasks_df_from_table_format(df)
+        
+    def refresh_us_table(self):
+        def filter():
+            pass
+        pass
+
+        # self.us_table_sheet.set_sheet_data(data=df.values.tolist())
+        
+    def refresh_task_table(self):
+        def filter_data():
+            pass
+        #     filter_applied = False
+        #     df = self.task_df_from_sheet()
+
+        #     if self.us_opt_sel.selection_made():
+        #         filter_applied = True
+        #         us = self.us_opt_sel.get_selection()
+        #         us_filter = pd.NA if us == 'Storyless' else int(us)
+        #         df = df[df['us_num'] == us_filter]
+        #     if self.user_opt_sel.selection_made():
+        #         filter_applied = True
+        #         user = self.user_opt_sel.get_selection()
+        #         user_filter = pd.NA if user == 'Unassigned' else user
+        #         df = df[df['asignee'] == user_filter]
+        #     if self.coding_opt_sel.selection_made():
+        #         filter_applied = True
+        #         coding = self.coding_opt_sel.get_selection()
+        #         coding_filter = True if coding == 'True' else False
+        #         df = df[df['is_coding'] == coding_filter]
+
+        #     if filter_applied:
+        #         self.clear_filters_btn['state'] = 'normal'
+
+        # self.tasks_table_sheet.set_sheet_data(data=df.values.tolist())
+
+    
+
+        
+
+    def build_dataframe(self):
+
+        def update_tables():
+            self.curr_us_df = self.dc.update_df(self.us_df_from_sheet(), self.curr_us_df)
+            self.curr_tasks_df = self.dc.update_df(self.task_df_from_sheet(), self.curr_tasks_df, 'id', ['task_num', 'us_num', 'is_complete', 'assignee', 'task_subject'])
+
+        def save_data():
+            update_tables()
+            self.dc.update_us_df(self.curr_us_df)
+            self.dc.update_tasks_df(self.curr_tasks_df, ['task_num', 'us_num', 'is_coding', 'is_complete', 'assignee', 'task_subject'])
+            self.build_dataframe()
+
+        def clear_data():
+            pass
+
+        def generate_field_obj(parent, lbl_str, target_obj):
+            field_lbl = ttk.Label(parent, text=lbl_str, anchor='e')
+            field_lbl.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
+            target_obj.grid(row=0, column=1, padx=(1, 2), sticky='nsew')
+
+        def build_header_frame(data_frame):
+            def build_tab_btn_frame(parent):
+                btn_frame = ttk.Frame(parent)
+                save_data_btn = ttk.Button(btn_frame, text='Save Current Table', command=save_data)
+                clear_data_btn = ttk.Button(btn_frame, text='Clear All Taiga Data', command=clear_data)
+                save_data_btn.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
+                clear_data_btn.grid(row=0, column=1, padx=(2, 1), sticky='nsew')
+                return btn_frame
+
+            header_frame = ttk.Frame(data_frame)
+            taiga_data_header_lbl = ttk.Label(header_frame, text=f'{' ' * 4}Taiga Data{' ' * 4}', font=('Arial', 15))
+            btn_frame = build_tab_btn_frame(header_frame)
+
+            taiga_data_header_lbl.pack(pady=2)
+            btn_frame.pack(pady=2)
+
+            return header_frame
+
+        ## US Tab Creation
+        ##=========================================================================================================================================
+        def build_us_tab(parent=None):
+            def build_filter_panel():
+                pass
+
+            def build_table():
+                pass
+
+            if not self.us_table_frame:
+                widget_frame = ttk.Frame(parent)
+                return widget_frame
+            else:
+                update_tables()
+        
+        ## Task Tab Creation
+        ##=========================================================================================================================================
+        def build_task_tab(parent=None):
+            ## Useful Variables
+            padx = 3
+            sticky = 'nsew'
+
+            us_options = [None, 'None','Storyless'] + self.user_stories
+            user_options = [None, 'None' ,'Unassigned'] + self.members
+            coding_options = [None, 'None', np.True_, np.False_]
+
+            us_select_strvar = StringVar()
+            user_select_strvar = StringVar()
+            coding_select_strvar = StringVar()
+
+            def apply_filters(*args):
+                print('TEST')
+                filter_applied = False
+                us = us_select_strvar.get()
+                user = user_select_strvar.get()
+                coding = coding_select_strvar.get()
+
+                if us != 'None':
+                    filter_applied = True
+                    print(f'US: {us}')
+                    
+                    pass
+
+                if user != 'None':
+                    filter_applied = True
+                    print(f'User: {user}')
+
+                    pass
+
+                if coding != 'None':
+                    filter_applied = True
+                    print(f'Is Coding: {coding}')
+
+                    pass
+
+                if filter_applied:
+                    self.clear_filters_btn['state'] = 'normal'
+                else:
+                    self.clear_filters_btn['state'] = 'disabled'
+
+            def build_filter_panel(parent_frame):
+                
+                def clear_filters():
+                    us_opt_sel.reset()
+                    user_opt_sel.reset()
+                    coding_opt_sel.reset()
+
+                def build_filters_btn_frame():
+                    btn_frame = ttk.Frame(filter_frame)
+                    apply_filters_btn = ttk.Button(btn_frame, text='Apply Filters', command=apply_filters)
+                    self.clear_filters_btn = ttk.Button(btn_frame, text='Clear Filters', state='disabled', command=clear_filters)
+                    apply_filters_btn.grid(row=0, column=0, padx=2, sticky=sticky)
+                    self.clear_filters_btn.grid(row=0, column=1, padx=2, sticky=sticky)
+                    return btn_frame
+                
+                filter_frame = ttk.Frame(parent_frame)
+                filter_header = ttk.Label(filter_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 11), borderwidth=2, relief='ridge')
+
+                options_frame = ttk.Frame(filter_frame)
+                us_filter_frame = ttk.Frame(options_frame)
+                user_filter_frame = ttk.Frame(options_frame)
+                coding_filter_frame = ttk.Frame(options_frame)
+
+                us_opt_sel = CustomOptionMenu(us_filter_frame, us_select_strvar, *us_options)
+                generate_field_obj(us_filter_frame, 'User Story:', us_opt_sel)
+                user_opt_sel = CustomOptionMenu(user_filter_frame, user_select_strvar, *user_options)
+                generate_field_obj(user_filter_frame, 'Assigned To:', user_opt_sel)
+                coding_opt_sel = CustomOptionMenu(coding_filter_frame, coding_select_strvar, *coding_options)
+                generate_field_obj(coding_filter_frame, 'Coding Task:', coding_opt_sel)
+
+                us_select_strvar.trace_add(mode='write', callback=apply_filters)
+                user_select_strvar.trace_add(mode='write', callback=apply_filters)
+                coding_select_strvar.trace_add(mode='write', callback=apply_filters)
+
+                us_filter_frame.grid(row=0, column=0, padx=padx, sticky=sticky)
+                user_filter_frame.grid(row=0, column=1, padx=padx, sticky=sticky)
+                coding_filter_frame.grid(row=0, column=2, padx=padx, sticky=sticky)
+
+                btn_frame = build_filters_btn_frame()
+                
+                filter_header.pack()
+                options_frame.pack(pady=(4, 2))
+                btn_frame.pack(pady=(2, 2))
+                filter_frame.pack()
+
+            
+
+            def task_table_change(event):
+                change_dict = {
+                    'is_coding': {
+                        np.True_: True,
+                        np.False_: False
+                    }
+                }
+
+                for (row, col), old_value in event.cells.table.items():
+                    try:
+                        # Convert data type based on original DataFrame column type
+                        col_name = self.curr_tasks_df.columns[col]
+                        new_val = not change_dict[col_name][old_value]  # Since the event only returns the old value
+                        self.curr_tasks_df.at[row, col_name] = old_value  # Update DataFrame
+
+                        print(f"Updated Tasks DataFrame: \nRow - {row}, Column Name - {col_name}, New Value - {new_val}\n")  # Debug print
+                    except Exception as e:
+                        print(f"Error updating DataFrame: {e}")
+
+                self.tasks_table_sheet.reset_changed_cells()  # Clear change tracker after update
+
+            def build_table_panel(parent_frame):
+                if self.tasks_table_sheet:
+                    self.tasks_table_sheet.destroy()
+
+                df = self.tasks_df_to_table_format(self.curr_tasks_df)
+                self.tasks_table_sheet = tks.Sheet(parent_frame, data=df.values.tolist(), header=df.columns.tolist())
+                self.tasks_table_sheet.create_dropdown('all', 3, values=[np.True_, np.False_])
+                for row, value in enumerate(df['is_coding']):
+                    self.tasks_table_sheet.set_cell_data(row, 3, value)
+
+                column_widths = []
+                index = 0
+                for column in df.columns.tolist():
+                    text_width = self.tasks_table_sheet.get_column_text_width(index)
+                    if column == 'task_subject':
+                        text_width = 500
+
+                    column_widths.append(text_width)
+                    index += 1
+
+                self.tasks_table_sheet.set_column_widths(column_widths)
+                # Bind event listener for edits
+
+                self.tasks_table_sheet.enable_bindings()
+                self.tasks_table_sheet.extra_bindings("end_edit_cell", task_table_change)  # Call function after edit
+                self.tasks_table_sheet.disable_bindings('move_columns', 'move_rows')
+                self.tasks_table_sheet.readonly_columns(columns=[0, 1, 2, 4, 5, 6])
+                self.tasks_table_sheet.pack(fill='both', expand=True, pady=(0, 5))
+                
+            if not self.tasks_table_frame:
+                widget_frame = ttk.Frame(parent)
+                hdr_lbl =  ttk.Label(widget_frame, text=f'{' ' * 4}Taiga Tasks Data{' ' * 4}', font=('Arial', 14))
+                self.tasks_table_frame = ttk.Frame(widget_frame)
+
+                hdr_lbl.pack(fill ='x') 
+                build_filter_panel(widget_frame)
+                build_table_panel(self.tasks_table_frame)
+                self.tasks_table_frame.pack(expand = 1, fill ="both") 
+                return widget_frame
+            else:
+                build_table_panel(self.tasks_table_frame)
+
+            
+        
+        ## DataFrame build logic
+        ##=========================================================================================================================================
+        self.pull_taiga_data()
+
+        if not self.data_frame:
+            update_tables()
+
+            self.data_frame = ttk.Frame(self)
+            header_frame = build_header_frame(self.data_frame)
+
+            tabControl = ttk.Notebook(self.data_frame)
+            us_data_tab = build_us_tab(tabControl)
+            task_data_tab = build_task_tab(tabControl)
+
+            tabControl.add(us_data_tab, text='User Story Data')
+            tabControl.add(task_data_tab, text='Task Data')
+
+            header_frame.pack(fill ='x') 
+            tabControl.pack(expand = 1, fill ="both") 
+            self.data_frame.pack(expand = 1, fill ="both") 
+        else:
+            update_tables()
+            build_us_tab()
+            build_task_tab()
+
+
+
+
+
+
+
+
+
+
+
 
     def taiga_data_ready(self) -> bool:
         return self.sheet_master_df is not None
@@ -538,13 +970,7 @@ class DataFrame(ttk.Frame):
         if self.sheet is not None:
             self.sheet.destroy()
 
-    def __generate_field_obj(self, field_frame, lbl_str, target_obj):
-        field_lbl = tk.Label(field_frame, text=lbl_str, anchor='e')
-
-        field_lbl.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
-        target_obj.grid(row=0, column=1, padx=(1, 2), sticky='nsew')
-
-        return target_obj
+    
 
     def __convert_to_str(self, val):
         if val == -1 or pd.isna(val):
@@ -689,7 +1115,7 @@ class DataFrame(ttk.Frame):
     def __build_filter_panel(self) -> ttk.Frame: 
         widget_frame = ttk.Frame(self, borderwidth=2, relief='ridge')
 
-        filters_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        filters_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         
         filters_frame = ttk.Frame(widget_frame)
         date_frame = ttk.Frame(filters_frame)

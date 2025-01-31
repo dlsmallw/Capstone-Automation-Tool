@@ -1,5 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
+import ttkthemes
+import sv_ttk
 import pandas as pd
 
 from models import DataManager
@@ -39,6 +41,11 @@ class Application():
         self.tabControl.pack(expand = 1, fill ="both") 
 
         self.tabControl.bind('<<NotebookTabChanged>>', self.tab_change)
+
+        # sv_ttk.set_theme("light")
+        # self.root.tk.call("source", "azure.tcl")
+        # self.root.tk.call("set_theme", "dark")
+
         self.root.mainloop()
 
     def close(self):

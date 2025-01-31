@@ -103,7 +103,7 @@ class ReportsFrame(ttk.Frame):
         return win.result
     
     def __generate_field_obj(self, field_frame, lbl_str, target_obj):
-        field_lbl = tk.Label(field_frame, text=lbl_str, anchor='e')
+        field_lbl = ttk.Label(field_frame, text=lbl_str, anchor='e')
         field_lbl.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=0, column=1, padx=(1, 2), sticky='nsew')
         return target_obj
@@ -156,7 +156,7 @@ class ReportsFrame(ttk.Frame):
         instr_str += "\n     - Example: With url https://tree.taiga.io/project/sundevil-awesome-sponsor-project/timeline, you would enter"
         instr_str += "\n     'https://tree.taiga.io/project/sundevil-awesome-sponsor-project'"
         
-        instruction_msg = tk.Message(parent, text=instr_str, width=800, borderwidth=2, relief='ridge')
+        instruction_msg = ttk(parent, text=instr_str, width=800, borderwidth=2, relief='ridge')
         
         field_frame = ttk.Frame(parent)
         taiga_project_field = self.__generate_field_obj(field_frame, 'Taiga Project URL (Optional):', ttk.Entry(field_frame, width=80))

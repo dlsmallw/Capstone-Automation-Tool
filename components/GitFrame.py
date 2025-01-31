@@ -1,4 +1,4 @@
-import tkinter as tk
+import tkinter as ttk
 from tkinter import ttk, filedialog, StringVar
 import tksheet as tks
 
@@ -127,13 +127,13 @@ class ConfigFrame(ttk.Frame):
                 return False
         return True
 
-    def __set_field(self, field: Type[tk.Label], val: Type[str]):
+    def __set_field(self, field: Type[ttk.Label], val: Type[str]):
         if val is not None and val != '':
             field.config(text=val)
             if self.__check_all_fields_set():
                 self.import_gh_data_btn['state'] = 'normal'
 
-    def __update_username(self, field: Type[tk.Label]):
+    def __update_username(self, field: Type[ttk.Label]):
         try:
             username = self.parent_frame.answer_dialog(msg='Enter the GitHub Username').strip()
             if username is not None and username != '':
@@ -145,7 +145,7 @@ class ConfigFrame(ttk.Frame):
         except:
             self.parent_frame.dialog('An issue has occurred while trying to set the username!')
 
-    def __update_token(self, field: Type[tk.Label]):
+    def __update_token(self, field: Type[ttk.Label]):
         try:
             token = self.parent_frame.answer_dialog(msg='Enter the GitHub Token').strip()
             if token is not None and token != '':
@@ -157,7 +157,7 @@ class ConfigFrame(ttk.Frame):
         except:
             self.parent_frame.dialog('An issue has occurred while trying to set the token!')
 
-    def __update_owner(self, field: Type[tk.Label]):
+    def __update_owner(self, field: Type[ttk.Label]):
         try:
             owner = self.parent_frame.answer_dialog(msg='Enter the Repo Owner Username').strip()
             if owner is not None and owner != '':
@@ -170,7 +170,7 @@ class ConfigFrame(ttk.Frame):
         except:
             self.parent_frame.dialog('An issue has occurred while trying to set the repo owner!')
 
-    def __update_repo(self, field: Type[tk.Label]):
+    def __update_repo(self, field: Type[ttk.Label]):
         try:
             repo = self.parent_frame.answer_dialog(msg='Enter the Repo Name').strip()
             if repo is not None and repo != '':
@@ -183,7 +183,7 @@ class ConfigFrame(ttk.Frame):
             self.parent_frame.dialog('An issue has occurred while trying to set the repo!')
 
     def __generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
-        field_lbl = tk.Label(field_frame, text=lbl_str, width=lbl_width, anchor='e')
+        field_lbl = ttk.Label(field_frame, text=lbl_str, width=lbl_width, anchor='e')
         field_lbl.grid(row=row, column=0, padx=(2, 1), pady=(0, 2), sticky='nsew')
         target_obj.grid(row=row, column=1, padx=(1, 2), pady=(0, 2), sticky='nsew')
         if btn_obj is not None:
@@ -198,38 +198,38 @@ class ConfigFrame(ttk.Frame):
         auth_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
         repo_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
 
-        auth_section_lbl = tk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        auth_section_lbl = ttk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         auth_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
         self.username_field = self.__generate_field_obj(auth_section_frame, 
                                                             1, 
                                                             'Username:', 
                                                             9, 
-                                                            tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
-                                                            tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_username(self.username_field), anchor='e', padx=3))
+                                                            ttk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                            ttk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_username(self.username_field)))
         self.token_field = self.__generate_field_obj(auth_section_frame, 
                                                         2, 
                                                         'Token:', 
                                                         9, 
-                                                        tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field), anchor='e', padx=3))
+                                                        ttk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field)))
         
-        repo_section_lbl = tk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        repo_section_lbl = ttk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         repo_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
         self.owner_field = self.__generate_field_obj(repo_section_frame, 
                                                         1, 
                                                         'Repo Owner:', 
                                                         10, 
-                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field), anchor='e', padx=3))
+                                                        ttk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field)))
         self.repo_field = self.__generate_field_obj(repo_section_frame, 
                                                         2, 
                                                         'Repo Name:', 
                                                         10, 
-                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field), anchor='e', padx=3))
+                                                        ttk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field)))
         
         # Buttons for importing and exporting data
-        self.import_gh_data_btn = tk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
+        self.import_gh_data_btn = ttk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
         self.import_gh_data_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         self.__set_field(self.username_field, self.dc.get_gh_username())
@@ -251,38 +251,38 @@ class ConfigFrame(ttk.Frame):
         auth_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
         repo_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
 
-        auth_section_lbl = tk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        auth_section_lbl = ttk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         auth_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
         self.username_field = self.__generate_field_obj(auth_section_frame, 
                                                             1, 
                                                             'Username:', 
                                                             9, 
-                                                            tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
-                                                            tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_username(self.username_field), anchor='e', padx=3))
+                                                            ttk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                            ttk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_username(self.username_field)))
         self.token_field = self.__generate_field_obj(auth_section_frame, 
                                                         2, 
                                                         'Token:', 
                                                         9, 
-                                                        tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field), anchor='e', padx=3))
+                                                        ttk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field)))
         
-        repo_section_lbl = tk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        repo_section_lbl = ttk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         repo_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
         self.owner_field = self.__generate_field_obj(repo_section_frame, 
                                                         1, 
                                                         'Repo Owner:', 
                                                         10, 
-                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field), anchor='e', padx=3))
+                                                        ttk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field)))
         self.repo_field = self.__generate_field_obj(repo_section_frame, 
                                                         2, 
                                                         'Repo Name:', 
                                                         10, 
-                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field), anchor='e', padx=3))
+                                                        ttk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field)))
         
         # Buttons for importing and exporting data
-        self.import_gh_data_btn = tk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
+        self.import_gh_data_btn = ttk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
         self.import_gh_data_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         self.__set_field(self.username_field, self.dc.get_gh_username())
@@ -304,32 +304,32 @@ class ConfigFrame(ttk.Frame):
         auth_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
         repo_section_frame = ttk.Frame(options_frame, borderwidth=2, relief='ridge')
 
-        auth_section_lbl = tk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        auth_section_lbl = ttk.Label(auth_section_frame, text=f'{' ' * 4}Auth Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         auth_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
         self.token_field = self.__generate_field_obj(auth_section_frame, 
                                                         2, 
                                                         'Token:', 
                                                         9, 
-                                                        tk.Label(auth_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field), anchor='e', padx=3))
+                                                        ttk.Label(auth_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(auth_section_frame, text='Edit', command=lambda: self.__update_token(self.token_field)))
         
-        repo_section_lbl = tk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        repo_section_lbl = ttk.Label(repo_section_frame, text=f'{' ' * 4}Repo Config Settings{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         repo_section_lbl.grid(row=0, columnspan=3, padx=2, pady=(1, 8), sticky='nsew')
         self.owner_field = self.__generate_field_obj(repo_section_frame, 
                                                         1, 
                                                         'Repo Owner:', 
                                                         10, 
-                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field), anchor='e', padx=3))
+                                                        ttk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_owner(self.owner_field)))
         self.repo_field = self.__generate_field_obj(repo_section_frame, 
                                                         2, 
                                                         'Repo Name:', 
                                                         10, 
-                                                        tk.Label(repo_section_frame, text='Not Set', anchor='w'), 
-                                                        tk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field), anchor='e', padx=3))
+                                                        ttk.Label(repo_section_frame, text='Not Set', anchor='w'), 
+                                                        ttk.Button(repo_section_frame, text='Edit', command=lambda: self.__update_repo(self.repo_field)))
         
         # Buttons for importing and exporting data
-        self.import_gh_data_btn = tk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
+        self.import_gh_data_btn = ttk.Button(btn_frame, text='Import GitHub Data', state='disabled', command=lambda: self.parent_frame.start_import_thread())
         self.import_gh_data_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
         self.__set_field(self.token_field, self.dc.get_gh_token())
@@ -388,7 +388,7 @@ class DataFrame(ttk.Frame):
             self.sheet.destroy()
 
     def __generate_field_obj(self, field_frame, lbl_str, target_obj):
-        field_lbl = tk.Label(field_frame, text=lbl_str, anchor='e')
+        field_lbl = ttk.Label(field_frame, text=lbl_str, anchor='e')
 
         field_lbl.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=0, column=1, padx=(1, 2), sticky='nsew')
@@ -534,7 +534,7 @@ class DataFrame(ttk.Frame):
     def __build_filter_panel(self) -> ttk.Frame: 
         widget_frame = ttk.Frame(self, borderwidth=2, relief='ridge')
 
-        filters_lbl = tk.Label(widget_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        filters_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
         
         filters_frame = ttk.Frame(widget_frame)
         date_frame = ttk.Frame(filters_frame)
@@ -568,10 +568,10 @@ class DataFrame(ttk.Frame):
         committer_frame.grid(row=0, column=1, sticky='nsew')
 
         # Buttons
-        apply_filters_btn = tk.Button(btn_frame, 
+        apply_filters_btn = ttk.Button(btn_frame, 
                                       text='Apply Filters', 
                                       command=lambda: self.__apply_filters(from_date_entry, to_date_entry, task_filter, committer_filter))
-        self.clear_filters_btn = tk.Button(btn_frame, 
+        self.clear_filters_btn = ttk.Button(btn_frame, 
                                       text='Clear Filters', 
                                       state='disabled',
                                       command=lambda: self.__clear_filters(from_date_entry, to_date_entry, task_filter, committer_filter))
@@ -588,8 +588,8 @@ class DataFrame(ttk.Frame):
         
     def __build_table_btn_frame(self) -> ttk.Frame:
         btn_frame = ttk.Frame(self)
-        save_data_btn = tk.Button(btn_frame, text='Save Current Table', command=lambda: self.__save_table_data(), padx=1)
-        clear_data_btn = tk.Button(btn_frame, text='Clear All GitHub Data', command=lambda: self.__clear_data(), padx=1)
+        save_data_btn = ttk.Button(btn_frame, text='Save Current Table', command=lambda: self.__save_table_data(), padx=1)
+        clear_data_btn = ttk.Button(btn_frame, text='Clear All GitHub Data', command=lambda: self.__clear_data(), padx=1)
         save_data_btn.grid(row=0, column=0, sticky='nsew', padx=2)
         clear_data_btn.grid(row=0, column=1, sticky='nsew', padx=2)
         return btn_frame

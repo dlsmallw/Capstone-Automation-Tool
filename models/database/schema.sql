@@ -26,14 +26,14 @@ CREATE TABLE IF NOT EXISTS repos (
 
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER,
-    username TEXT NOT NULL,
+    username TEXT NOT NULL UNIQUE,
     alt_alias TEXT,
     PRIMARY KEY(username)
 );
 
 CREATE TABLE IF NOT EXISTS sprints (
     id INTEGER,
-    sprint_name TEXT NOT NULL,
+    sprint_name TEXT NOT NULL UNIQUE,
     sprint_start INTEGER,
     sprint_end INTEGER,
     PRIMARY KEY(id AUTOINCREMENT)
@@ -41,24 +41,24 @@ CREATE TABLE IF NOT EXISTS sprints (
 
 CREATE TABLE IF NOT EXISTS userstories (
     id INTEGER,
-    us_num INTEGER NOT NULL,
+    us_num INTEGER NOT NULL UNIQUE,
     is_complete BOOLEAN NOT NULL CHECK (is_complete IN (0, 1)),
-    sprint_id INTEGER,
+    sprint TEXT,
     points INTEGER NOT NULL,
     PRIMARY KEY(id),
-    FOREIGN KEY(sprint_id) REFERENCES sprints(id)
+    FOREIGN KEY(sprint) REFERENCES sprints(sprint_name)
 );
 
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER,
     task_num INTEGER NOT NULL,
+    us_num INTEGER,
     is_coding BOOLEAN NOT NULL CHECK (is_coding IN (0, 1)),
     is_complete BOOLEAN NOT NULL CHECK (is_complete IN (0, 1)),
-    us_id INTEGER,
     assignee TEXT,
     task_subject TEXT,
     PRIMARY KEY(id),
-    FOREIGN KEY(us_id) REFERENCES userstories(id),
+    FOREIGN KEY(us_num) REFERENCES userstories(us_num),
     FOREIGN KEY(assignee) REFERENCES members(username)
 );
 

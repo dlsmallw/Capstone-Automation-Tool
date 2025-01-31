@@ -59,13 +59,15 @@ class CustomDateEntry(DateEntry):
 
 
 class CustomOptionMenu(ttk.OptionMenu):
-    def __init__(self, master, variable, default = None, *values, style = "", direction = "below", command = None):
+    def __init__(self, master, variable, default = 'None', *values, style = "", direction = "below", command = None):
         super().__init__(master, variable, default, *values, style=style, direction=direction, command=command)
         self.variable = variable
         self.values = values
+        self.default = default
+        self.reset()
 
     def reset(self):
-        self.variable.set('')
+        self.variable.set(self.default)
 
     def selection_made(self):
         if self.variable.get() != '':

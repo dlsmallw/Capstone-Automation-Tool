@@ -44,6 +44,8 @@ class DataController:
         #### CSV URLs
         self.us_report_url = None
         self.task_report_url = None
+        #### Status Vars
+        self.taiga_data_available = False
 
         ## GitHub-related variables
         ## TODO
@@ -73,13 +75,20 @@ class DataController:
         projects = self.db.select('taiga_projects')
         if len(projects) > 0:
             self.taiga_projects_df = pd.DataFrame(data=projects, columns=['id', 'project_name', 'project_owner', 'is_selected'])
-            result = self.db.select('taiga_projects', ['id', 'project_name', 'project_owner'], {'is_selected': 1})[0]
+            result = self.db.select('taiga_projects', ['id', 'project_name', 'project_owner'], {'is_selected': 1})
             if result and len(result) > 0:
-                self.set_linked_taiga_project(result[0], result[1], result[2])
+                self.set_linked_taiga_project(result[0][0], result[0][1], result[0][2])
 
     def init_taiga_servicer(self):
         self.load_taiga_projects()
+        self.load_saved_taiga_data()
         return TaigaProjectServicer(self.load_taiga_credentials())
+    
+    def load_saved_taiga_data(self):
+        self.update_sprints_df(self.db.table_to_df('sprints'))
+        self.update_members_df(self.db.table_to_df('members'))
+        self.update_us_df(self.db.table_to_df('userstories'))
+        self.update_tasks_df(self.db.table_to_df('tasks'))
 
     def init_git_servicer(self):
         pass
@@ -123,17 +132,21 @@ class DataController:
     ## Util Functions
     ##=============================================================================
 
+    def taiga_data_ready(self):
+        return self.taiga_data_available
+
     def get_cell_val_from_df(self, df : pd.DataFrame, desired_field, cond_field, cond_val):
         try:
-            return df.loc(df[cond_field] == cond_val, desired_field)
+            return df.loc[df[cond_field] == cond_val, desired_field].iloc[0]
         except:
             return None
         
     def update_df(self, curr_df: pd.DataFrame, new_df: pd.DataFrame, col_to_index='id', cols=None):
         try:
-            curr_df_copy = curr_df.copy(deep=True)
-            new_df_copy = new_df.copy(deep=True)
-            if curr_df_copy is not None and not curr_df_copy.empty:
+            if curr_df is not None and not curr_df.empty:
+                curr_df_copy = curr_df.copy(deep=True)
+                new_df_copy = new_df.copy(deep=True)
+
                 curr_df_copy = pd.concat([curr_df_copy, new_df_copy]).drop_duplicates([col_to_index], keep='first')
 
                 curr_df_copy.set_index(col_to_index, inplace=True)
@@ -144,30 +157,20 @@ class DataController:
                 else:
                     curr_df_copy.update(new_df_copy)
                 curr_df_copy.reset_index(inplace=True)
+                return curr_df_copy
             else:
-                curr_df_copy = new_df_copy
+                curr_df = new_df
+                return curr_df
+        except Exception as e:
+            print(e)
+            # exc_type = type(e),__name__
+            # exc_cause = 'No Cause/Context Provided'
+            # cause = e.__cause__ or e.__context__
+            # if cause:
+            #     exc_cause = str(cause)
 
-            return curr_df_copy
-        except:
-            print('Failed to update dataframe with new data')
+            # print(f'{exc_type}: {exc_cause}')
             return curr_df
-
-
-
-    
-    
-    
-
-    
-
-    def validate_token_auth(self, token):
-        header = {
-            "Content-Type": "application/json",
-            "Authorization": f'Bearer {token}'
-        }
-        url = 'https://api.taiga.io/api/v1/users/me'
-        res = requests.get(url, headers=header)
-        return res.status_code >= 200 and res.status_code < 300
 
     # Function to authenticate with Taiga API
     def authenticate_with_taiga(self, username, password):
@@ -195,10 +198,18 @@ class DataController:
             return "Error", f"An error occurred: {e}"
 
     def update_projects_df(self, new_df):
-        if self.taiga_projects_df is not None and len(self.taiga_projects_df) > 0:
-            self.taiga_projects_df.update(new_df[['id', 'project_name', 'project_owner']])
-        else:
-            self.taiga_projects_df = new_df
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            self._inv_val_format(df)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+            df.sort_values(by='id', ascending=True, inplace=True)
+            return df
+
+        if new_df is not None and len(new_df) > 0:
+            self.taiga_projects_df = self.update_df(self.taiga_projects_df, format_df(new_df))
+            self.db.df_to_table('taiga_projects', self.taiga_projects_df)
+            self.taiga_projects_df = format_df(self.db.table_to_df('taiga_projects'))
 
     def pull_taiga_projects(self):
         projects = self.ts.get_watched_projects()
@@ -209,6 +220,12 @@ class DataController:
         self.pull_taiga_projects()
         self.db.df_to_table('taiga_projects', self.taiga_projects_df)
         return True
+    
+    def get_num_projects(self):
+        if self.taiga_projects_df is not None and not self.taiga_projects_df.empty:
+            return len(self.taiga_projects_df)
+        else:
+            return 0
         
     def get_available_projects(self):
         projects = []
@@ -238,36 +255,90 @@ class DataController:
     ## Taiga Data Importing
     ##=============================================================================
 
+    def _inv_val_format(self, df: pd.DataFrame):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
 
     def get_us_num_by_id(self, us_id):
         return self.get_cell_val_from_df(self.us_df, 'us_num', 'id', us_id)
-    
-    def get_sprint_for_us(self, us_num):
-        pass
 
-    def update_sprints_df(self, df: pd.DataFrame):
-        if df is not None and len(df) > 0:
-            self.sprints_df = self.update_df(self.sprints_df, df)
-            self.db.df_to_table('sprints', self.sprints_df)
-            self.sprints_df = self.db.table_to_df('sprints')
+    def update_sprints_df(self, new_df: pd.DataFrame):
+        def to_table_format(df: pd.DataFrame) -> pd.DataFrame:
+            df['sprint_start'] = pd.to_datetime(df['sprint_start']).dt.strftime('%m/%d/%Y')
+            df['sprint_end'] = pd.to_datetime(df['sprint_end']).dt.strftime('%m/%d/%Y')
+            return df
 
-    def update_members_df(self, df: pd.DataFrame):
-        if df is not None and len(df) > 0:
-            self.members_df = self.update_df(self.members_df, df, 'username')
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            df['sprint_start'] = pd.to_datetime(df['sprint_start'])
+            df['sprint_end'] = pd.to_datetime(df['sprint_end'])
+            self._inv_val_format(df)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+            df.sort_values(by='sprint_start', ascending=True, inplace=True)
+            return df
+
+        if new_df is not None and len(new_df) > 0:
+            self.sprints_df = self.update_df(self.sprints_df, format_df(new_df))
+            self.db.df_to_table('sprints', to_table_format(self.sprints_df))
+            self.sprints_df = format_df(self.db.table_to_df('sprints'))
+
+
+    def update_members_df(self, new_df: pd.DataFrame):
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            self._inv_val_format(df)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['username'], keep='first').reset_index(drop=True)
+            df.sort_values(by='id', ascending=True, inplace=True)
+            return df
+        
+        if new_df is not None and len(new_df) > 0:
+            self.members_df = self.update_df(self.members_df, format_df(new_df), 'username')
             self.db.df_to_table('members', self.members_df)
-            self.members_df = self.db.table_to_df('members')
+            self.members_df = format_df(self.db.table_to_df('members'))
     
-    def update_us_df(self, df: pd.DataFrame):
-        if df is not None and len(df) > 0:
-            self.us_df = self.update_df(self.us_df, df)
+    def update_us_df(self, new_df: pd.DataFrame, cols=None):
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            df['us_num'] = df['us_num'].astype(pd.Int64Dtype())
+            df['points'] = df['points'].astype(pd.Int64Dtype())
+            df['is_complete'] = df['is_complete'].astype(pd.BooleanDtype())
+            df['points'].replace(pd.NA, 0, inplace=True)
+            
+            self._inv_val_format(df)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+            df.sort_values(by=['sprint', 'us_num'], ascending=True, na_position='last', inplace=True)
+            return df
+        
+        if new_df is not None and len(new_df) > 0:
+            self.us_df = self.update_df(self.us_df, format_df(new_df))
             self.db.df_to_table('userstories', self.us_df)
-            self.us_df = self.db.table_to_df('userstories')
+            self.us_df = format_df(self.db.table_to_df('userstories'))
 
-    def update_tasks_df(self, df: pd.DataFrame):
-        if df is not None and len(df) > 0:
-            self.tasks_df = self.update_df(self.tasks_df, df, cols=['task_num', 'is_complete', 'us_id', 'assignee', 'task_subject'])
+        self.taiga_data_available = self.us_df is not None and len(self.us_df) > 0 and self.tasks_df is not None and len(self.tasks_df) > 0
+
+    def update_tasks_df(self, new_df: pd.DataFrame, cols=['task_num', 'is_complete', 'us_num', 'assignee', 'task_subject']):
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            df['task_num'] = df['task_num'].astype(pd.Int64Dtype())
+            df['us_num'] = df['us_num'].astype(pd.Int64Dtype())
+            df['is_coding'] = df['is_coding'].astype(pd.BooleanDtype())
+            df['is_complete'] = df['is_complete'].astype(pd.BooleanDtype())
+
+            self._inv_val_format(df)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+            df.sort_values(by=['us_num', 'task_num'], ascending=[True, True], inplace=True)
+            return df
+        
+        if new_df is not None and len(new_df) > 0:
+            self.tasks_df = self.update_df(self.tasks_df, format_df(new_df), cols=cols)
             self.db.df_to_table('tasks', self.tasks_df)
-            self.tasks_df = self.db.table_to_df('tasks')
+            self.tasks_df = format_df(self.db.table_to_df('tasks'))
+
+        self.taiga_data_available = self.us_df is not None and len(self.us_df) > 0 and self.tasks_df is not None and len(self.tasks_df) > 0
+
 
     def __format_and_centralize_taiga_data(self):
         sprints_df = self.sprints_df
@@ -297,42 +368,58 @@ class DataController:
             data_row = [sprint, sprint_start, sprint_end, user_story, points, task, assigned, coding, subject]
             all_data[index] = data_row
 
+    def process_taiga_data(self, sprint_df, member_df, us_df, tasks_df):
+        self.update_sprints_df(sprint_df)
+        self.update_members_df(member_df)
+        self.update_us_df(us_df)
+        self.update_tasks_df(tasks_df)
+
     def taiga_import_by_api(self):
         if self.project_selected and self.ts.token_set():
-            sprints_df, members_df, us_df, task_df = self.ts.import_data_by_api(self.sel_pid)
-            print(f'Sprints DF Length: {len(sprints_df)}')
-            print(sprints_df)
-            print(f'Members DF Length: {len(members_df)}')
-            print(members_df)
-            print(f'US DF Length: {len(us_df)}')
-            print(us_df)
-            print(f'Tasks DF Length: {len(task_df)}')
-            print(task_df)
+            try:
+                sprints_df, members_df, us_df, task_df = self.ts.import_data_by_api(self.sel_pid)
+                self.process_taiga_data(sprints_df, members_df, us_df, task_df)
+                return 'Success', f'Successfully imported Taiga data by API'
+            except Exception as e:
+                return 'Error', f'Failed to import Taiga data by API - {e}'
 
     def taiga_import_by_urls(self, us_url, tasks_url):
         if us_url and tasks_url:
-            sprints_df, members_df, us_df, task_df = self.ts._import_data_by_urls(us_url, tasks_url)
-            print(f'Sprints DF Length: {len(sprints_df)}')
-            print(sprints_df)
-            print(f'Members DF Length: {len(members_df)}')
-            print(members_df)
-            print(f'US DF Length: {len(us_df)}')
-            print(us_df)
-            print(f'Tasks DF Length: {len(task_df)}')
-            print(task_df)
+            try:
+                sprints_df, members_df, us_df, task_df = self.ts._import_data_by_urls(us_url, tasks_url)
+                self.process_taiga_data(sprints_df, members_df, us_df, task_df)
+                return 'Success', f'Successfully imported Taiga data by URLs'
+            except Exception as e:
+                return 'Error', f'Failed to import Taiga data by URLs - {e}'
 
     def taiga_import_by_files(self, us_fp, tasks_fp):
         if us_fp and tasks_fp:
-            sprints_df, members_df, us_df, task_df = self.ts._import_data_by_files(us_fp, tasks_fp)
-            print(f'Sprints DF Length: {len(sprints_df)}')
-            print(sprints_df)
-            print(f'Members DF Length: {len(members_df)}')
-            print(members_df)
-            print(f'US DF Length: {len(us_df)}')
-            print(us_df)
-            print(f'Tasks DF Length: {len(task_df)}')
-            print(task_df)
+            try:   
+                sprints_df, members_df, us_df, task_df = self.ts._import_data_by_files(us_fp, tasks_fp)
+                self.process_taiga_data(sprints_df, members_df, us_df, task_df)
+                return 'Success', f'Successfully imported Taiga data by File'
+            except Exception as e:
+                return 'Error', f'Failed to import Taiga data by File - {e}'
+            # print(f'Sprints DF Length: {len(sprints_df)}')
+            # print(sprints_df)
+            # print(f'Members DF Length: {len(members_df)}')
+            # print(members_df)
+            # print(f'US DF Length: {len(us_df)}')
+            # print(us_df)
+            # print(f'Tasks DF Length: {len(task_df)}')
+            # print(task_df)
 
+    def get_us_df(self) -> pd.DataFrame:
+        return self.us_df
+    
+    def get_task_df(self) -> pd.DataFrame:
+        return self.tasks_df
+    
+    def get_members_df(self) -> pd.DataFrame:
+        return self.members_df
+    
+    def get_sprints_df(self) -> pd.DataFrame:
+        return self.sprints_df
 
     ## Config Management
     ##=============================================================================
@@ -637,8 +724,7 @@ class DataController:
         self.remove_file('./raw_data/raw_taiga_us_data.csv')
         self.remove_file('./raw_data/raw_taiga_task_data.csv')
     
-    def taiga_data_ready(self):
-        return self.tp.data_is_ready()
+    
     
     def git_data_ready(self):
         return self.gp.data_is_ready()
