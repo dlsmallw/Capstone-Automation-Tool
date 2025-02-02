@@ -52,6 +52,13 @@ class TaigaProjectServicer:
     def token_set(self):
         return self.token_set_and_verified
     
+    def clear_linked_data(self):
+        self.username = None
+        self.password = None
+        self.user_id = None
+        self.token = None
+        self.token_set_and_verified = False
+    
     ## API CALL METHODS
     ##==================================================================================================================
 
@@ -170,7 +177,6 @@ class TaigaProjectServicer:
                 data = []
 
                 for index, row in updated_raw_df.iterrows():
-                    print(row.values)
                     mem_id = row['id']
                     uname = row['username']
                     fname = row['full_name_display']

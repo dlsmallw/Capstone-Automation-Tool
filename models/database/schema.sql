@@ -68,11 +68,11 @@ CREATE TABLE IF NOT EXISTS commits (
     az_date INTEGER NOT NULL,
     utc_datetime INTEGER NOT NULL,
     commit_message TEXT,
-    task_id INTEGER,
+    task_num INTEGER,
     author TEXT,
     commit_url TEXT NOT NULL,
     PRIMARY KEY(id),
-    FOREIGN KEY(task_id) REFERENCES tasks(id),
+    FOREIGN KEY(task_num) REFERENCES tasks(task_num),
     FOREIGN KEY(author) REFERENCES members(username)
 );
 

@@ -146,7 +146,7 @@ class ConfigFrame(ttk.Frame):
         submit_button = ttk.Button(prompt_window, text="Submit", command=submit_entry)
         submit_button.pack(pady=10)
 
-    def _generate_field_obj(self, field_frame, row, lbl_str, lbl_width, target_obj, btn_obj=None):
+    def _generate_field_obj(self, field_frame, row, lbl_str, target_obj, btn_obj=None):
         field_lbl = ttk.Label(field_frame, text=lbl_str, anchor='e')
         field_lbl.grid(row=row, column=0, padx=(2, 1), sticky='nsew')
         target_obj.grid(row=row, column=1, padx=(1, 2), sticky='nsew')
@@ -342,7 +342,6 @@ class ConfigFrame(ttk.Frame):
         self._generate_field_obj(acct_fields_frame, 
                                  0, 
                                  'Username:', 
-                                 12, 
                                  ttk.Label(acct_fields_frame, textvariable=self.username_strval))
         btn_style = ttk.Style()
         btn_style.configure('my.TButton', font=('Arial', 8))
@@ -354,7 +353,6 @@ class ConfigFrame(ttk.Frame):
         self._generate_field_obj(status_fields_frame,
                                  0,
                                  'Link Status:',
-                                 12,
                                  ttk.Label(status_fields_frame, textvariable=self.link_status_strval))
         self.project_link_btn = ttk.Button(status_frame, textvariable=self.project_sel_btn_strval, style='my.TButton', command=open_project_sel_prompt, state='disabled')
         
@@ -387,82 +385,129 @@ class ConfigFrame(ttk.Frame):
     def _build_csv_links_form(self, parent) -> ttk.Frame:
         ## Nested Methods
         ##====================================================================================================================================================
-        def set_url(field: StringVar, type: str, url: str):
-            if url is not None and url != '':
-                if type == 'us':
-                    if 'https://api.taiga.io/api/v1/userstories/csv?uuid=' in url:
-                        self.dc.set_taiga_us_api_url(url)
-                        field.set(url)
-                elif type == 'task':
-                    if 'https://api.taiga.io/api/v1/tasks/csv?uuid=' in url:
-                        self.dc.set_taiga_task_api_url(url)
-                        field.set(url)
-                else:
+        def set_urls(us_url, task_url):
+            if us_url and task_url:
+                self.dc.update_taiga_csv_urls(us_url, task_url)
+                self.us_csv_url_strvar.set(us_url)
+                self.task_csv_url_strvar.set(task_url)
+                self.import_from_csv_url_btn['state'] = 'normal'
+            else:
+                messagebox.showerror('Invalid URLs', 'Invalid URL entered')
+
+        def url_update_prompt():
+            prompt_window = tk.Toplevel()
+            prompt_window.title('Set/Update CSV Import URLs')
+            prompt_window.geometry("300x150")
+            curr_us_url, curr_task_url = self.dc.get_taiga_csv_urls()
+
+            # Username Label and Entry
+            us_url_lbl = ttk.Label(prompt_window, text="User Story CSV URL:")
+            us_url_lbl.pack(pady=5)
+            us_url_entry = ttk.Entry(prompt_window, width=30)
+            us_url_entry.pack(pady=5)
+
+            # Password Label and Entry
+            task_url_lbl = ttk.Label(prompt_window, text="Task CSV URL:")
+            task_url_lbl.pack(pady=5)
+            task_url_entry = ttk.Entry(prompt_window, show="*", width=30)
+            task_url_entry.pack(pady=5)
+
+            if curr_us_url is not None:
+                us_url_entry.insert(0, curr_us_url)
+
+            if curr_task_url is not None:
+                task_url_entry.insert(0, curr_task_url)
+
+            # Function to handle submission
+            def submit_entry():
+                us_value = us_url_entry.get().strip()
+                task_value = task_url_entry.get().strip()
+
+                if 'https://api.taiga.io/api/v1/userstories/csv?uuid=' not in us_value \
+                    and 'https://api.taiga.io/api/v1/tasks/csv?uuid=' not in task_value:
+                    messagebox.showerror("Error", "Entries cannot be empty.", parent=prompt_window)
                     return
                 
-                if self.us_csv_url_strvar != 'No URL Specified' and self.task_csv_url_strvar.get() != 'No URL Specified':
-                    self.import_from_csv_url_btn['state'] = 'normal'
-            else:
-                messagebox.showerror('Invalid URL', 'Invalid URL entered')
+                set_urls(us_value, task_value)
+                prompt_window.destroy()
 
-        def url_update_dialog(field: StringVar, type: str):
-            prompt_title = f'Set/Update {'User Story' if type == 'us' else 'Task'} CSV Import URL'
-            self.prompt_for_entry(prompt_title, 'Enter the URL:', set_url, [field, type])
+            # Submit button
+            submit_button = ttk.Button(prompt_window, text="Submit", command=submit_entry)
+            submit_button.pack(pady=10)
 
         def init_fields():
-            us_url = self.dc.get_taiga_us_csv_url()
-            task_url = self.dc.get_taiga_task_csv_url()
+            us_url, task_url = self.dc.get_taiga_csv_urls()
 
             if us_url:
                 self.us_csv_url_strvar.set(us_url)
+            else:
+                self.us_csv_url_strvar.set('No URL Specified')
+
             if task_url:
                 self.task_csv_url_strvar.set(task_url)
+            else:
+                self.task_csv_url_strvar.set('No URL Specified')
 
-            if self.us_csv_url_strvar != 'No URL Specified' and self.task_csv_url_strvar.get() != 'No URL Specified':
+            us_url = self.us_csv_url_strvar.get()
+            task_url = self.task_csv_url_strvar.get()
+
+            if us_url != 'No URL Specified' and task_url != 'No URL Specified':
                 self.import_from_csv_url_btn['state'] = 'normal'
-
-            
 
         def import_by_url():
             us_url = self.us_csv_url_strvar.get()
             task_url = self.task_csv_url_strvar.get()
 
-            if us_url and task_url:
+            us_url_ready = us_url and us_url != 'No URL Specified'
+            task_url_ready = task_url and task_url != 'No URL Specified'
+
+            if us_url_ready and task_url_ready:
                 threading.Thread(target=lambda: self.import_by_csv_urls(us_url, task_url)).start()
+
+        def gen_field(parent, lbl_str, target_obj):
+            field_frame = ttk.Frame(parent)
+            field_lbl = ttk.Label(field_frame, width=26, text=lbl_str, anchor='e')
+            field_obj = ttk.Label(field_frame, textvariable=target_obj, anchor='w')
+            field_lbl.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
+            field_obj.grid(row=0, column=1, padx=(1, 2), sticky='nsew')
+            return field_frame
 
 
         ## Function logic
         ##====================================================================================================================================================
         widget_frame = ttk.Frame(parent)
 
-        csv_url_config_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV URLs{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        lbl_frame = ttk.Frame(widget_frame, borderwidth=2, relief='ridge')
+        csv_url_config_lbl = ttk.Label(lbl_frame, text=f'{' ' * 4}Import Using CSV URLs{' ' * 4}', font=('Arial', 15))
+        csv_url_config_lbl.pack()
+
         csv_url_config_frame = ttk.Frame(widget_frame)
+        csv_url_text_frame = ttk.Frame(csv_url_config_frame)
 
-        self.us_csv_url_strvar = StringVar(value='No URL Specified')
-        self.task_csv_url_strvar = StringVar(value='No URL Specified')
+        self.us_csv_url_strvar = StringVar()
+        self.task_csv_url_strvar = StringVar()
+        self.url_update_btn_strvar = StringVar(value='Update CSV URLs')
 
-        self._generate_field_obj(csv_url_config_frame, 
-                                    0, 
+        us_url_field = gen_field(csv_url_text_frame, 
                                     'US Report CSV URL:', 
-                                    16, 
-                                    ttk.Label(csv_url_config_frame, textvariable=self.us_csv_url_strvar, anchor='w'), 
-                                    ttk.Button(csv_url_config_frame, text='Set CSV URL', command=lambda: url_update_dialog(self.us_csv_url_strvar, 'us')))
-        
-        self._generate_field_obj(csv_url_config_frame, 
-                                    1, 
+                                    self.us_csv_url_strvar)
+        task_url_field = gen_field(csv_url_text_frame, 
                                     'Task Report CSV URL:', 
-                                    16, 
-                                    ttk.Label(csv_url_config_frame, textvariable=self.task_csv_url_strvar, anchor='w'), 
-                                    ttk.Button(csv_url_config_frame, text='Set CSV URL', command=lambda: url_update_dialog(self.task_csv_url_strvar, 'task')))
+                                    self.task_csv_url_strvar)
+        self.url_update_btn = ttk.Button(csv_url_config_frame, textvariable=self.url_update_btn_strvar, command=url_update_prompt)
         
+        us_url_field.grid(row=0, column=0)
+        task_url_field.grid(row=1, column=0)
+        csv_url_text_frame.grid(row=0, column=0)
+        self.url_update_btn.grid(row=0, column=2, padx=4)
 
         # Buttons for importing and exporting data
         btn_frame = ttk.Frame(widget_frame)
         self.import_from_csv_url_btn = ttk.Button(btn_frame, text='Import from CSV URL', state='disabled', command=import_by_url)
         self.import_from_csv_url_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
-        csv_url_config_lbl.pack(fill='x', pady=(0, 8))
-        csv_url_config_frame.pack(pady=(0, 4))
+        lbl_frame.pack(fill='x', pady=(0, 8))
+        csv_url_config_frame.pack(pady=(0, 8))
         btn_frame.pack()
 
         init_fields()
@@ -502,7 +547,6 @@ class ConfigFrame(ttk.Frame):
         self._generate_field_obj(fp_sel_frame, 
                                     0, 
                                     'US Report Filepath:', 
-                                    16, 
                                     ttk.Label(fp_sel_frame, textvariable=self.us_fp_strval, anchor='w'), 
                                     ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.us_fp_strval)))
 
@@ -510,7 +554,6 @@ class ConfigFrame(ttk.Frame):
         self._generate_field_obj(fp_sel_frame, 
                                     1, 
                                     'Task Report Filepath:', 
-                                    16, 
                                     ttk.Label(fp_sel_frame, textvariable=self.task_fp_strval, anchor='w'), 
                                     ttk.Button(fp_sel_frame, text='Select Report File', command=lambda: file_select(self.task_fp_strval)))
 
@@ -574,6 +617,15 @@ class DataFrame(ttk.Frame):
         ans = messagebox.askquestion(title='Delete All Taiga Data', message='Are you sure?')
         if ans == 'yes':
             print('Deleting Taiga Data...')
+            self.us_df_master = self.curr_us_df \
+                = self.tasks_df_master = self.curr_tasks_df \
+                    = self.sprints = self.members = self.user_stories = None
+            self.dc.clear_taiga_data()
+            if self.data_frame:
+                self.data_frame.destroy()
+                self.data_frame = None
+
+            messagebox.showinfo('Taiga Data Deletion', 'Taiga Data Cleared')
 
 
     def import_data_to_tables(self):
@@ -693,8 +745,6 @@ class DataFrame(ttk.Frame):
                         
                         if completion_filter and row[2] != compl:
                             row_match = False
-
-                        print(row_match)
 
                         if row_match:
                             rows.append(rn)

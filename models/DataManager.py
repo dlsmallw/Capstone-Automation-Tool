@@ -31,7 +31,7 @@ class DataController:
 
         ## Taiga-related variables
         #### Projects
-        self.taiga_projects_df = None
+        self.taiga_projects_df : pd.DataFrame = None
         self.sel_pid = None
         self.sel_project_name = None
         self.sel_project_owner = None
@@ -90,6 +90,30 @@ class DataController:
         self.update_us_df(self.db.table_to_df('userstories'))
         self.update_tasks_df(self.db.table_to_df('tasks'))
 
+    def clear_taiga_data(self):
+        tables = ['members', 'sprints', 'userstories', 'tasks']
+        for name in tables:
+            self.db.clear_table(name)
+
+        self.sprints_df = None
+        self.members_df = None
+        self.us_df = None
+        self.tasks_df = None
+        self.taiga_data_available = False
+
+    def clear_taiga_link(self):
+        self.clear_taiga_data()
+        self.db.clear_table('taiga_projects')
+        self.update_taiga_credentials()
+        self.update_taiga_csv_urls()
+        self.ts.clear_linked_data()
+
+        self.taiga_projects_df = None
+        self.sel_pid = None
+        self.sel_project_name = None
+        self.sel_project_owner = None
+        self.project_selected = False
+
     def init_git_servicer(self):
         pass
 
@@ -114,18 +138,38 @@ class DataController:
     def get_gl_credentials(self):
         pass
     
-    def update_user_credentials(self, site_name, username='NULL', pwd='NULL', token='NULL'):
+    def update_user_credentials(self, site_name, username=None, pwd=None, token=None):
         return self.db.update('sites', dict(zip(['username', 'user_pwd', 'site_token'], self.db.encrypt([username, pwd, token]))), {'site_name': site_name})
     
-    def update_taiga_credentials(self, uname, pwd):
+    def update_taiga_credentials(self, uname=None, pwd=None):
         is_success = self.update_user_credentials(TAIGA, username=uname, pwd=pwd)
         return is_success
     
-    def update_gh_credentials(self, token):
+    def update_taiga_csv_urls(self, us_url='NULL', task_url='NULL'):
+        self.us_report_url = us_url if us_url != 'NULL' else None
+        self.task_report_url = task_url if task_url != 'NULL' else None
+
+        return self.db.update('taiga_csv_urls', {'durl': us_url}, {'dname': 'user_story'}) \
+            and self.db.update('taiga_csv_urls', {'durl': task_url}, {'dname': 'task'})
+    
+    def get_taiga_csv_urls(self):
+        us_url = task_url = None
+        results = self.db.select('taiga_csv_urls')
+        for entry in results:
+            if entry:
+                dname = entry[0]
+                if dname == 'user_story':
+                    us_url = entry[1]
+                elif dname == 'task':
+                    task_url = entry[1]
+            
+        return us_url, task_url
+    
+    def update_gh_credentials(self, token=None):
         is_success = self.update_user_credentials(GITHUB, token=token)
         return is_success
     
-    def update_gl_credentials(self, token):
+    def update_gl_credentials(self, token=None):
         is_success = self.update_user_credentials(GITLAB, token=token)
         return is_success
 
@@ -705,18 +749,6 @@ class DataController:
     
     def set_taiga_master_df(self, df):
         self.tp.set_master_df(df)
-
-    def clear_git_commit_data(self):
-        self.gp.clear_data()
-        self.remove_file('./raw_data/raw_git_master_data.csv')
-
-    def clear_taiga_data(self):
-        self.tp.clear_data()
-        self.remove_file('./raw_data/raw_taiga_master_data.csv')
-        self.remove_file('./raw_data/raw_taiga_us_data.csv')
-        self.remove_file('./raw_data/raw_taiga_task_data.csv')
-    
-    
     
     def git_data_ready(self):
         return self.gp.data_is_ready()
