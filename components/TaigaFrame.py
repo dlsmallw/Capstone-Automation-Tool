@@ -2,16 +2,12 @@ import tkinter as tk
 from tkinter import ttk, filedialog, StringVar, messagebox, Tk
 import tksheet as tks
 
-from typing import Type
 import pandas as pd
 import numpy as np
 import threading
-import requests
-import time
-import trace
 
 from models.DataManager import DataController
-from components.CustomComponents import CustomDateEntry, CustomOptionMenu
+from components.CustomComponents import CustomOptionMenu
 
 class TaigaFrame(ttk.Frame):
     def __init__(self, parent: ttk.Notebook, dc: DataController):
@@ -31,14 +27,20 @@ class TaigaFrame(ttk.Frame):
         self.refresh()
 
         if self.dc.taiga_data_ready():
-            self.data_panel.build_dataframe()
+            self.data_panel.handle_data_to_tables()
 
     def setup_dataframe(self):
-        self.data_panel.build_dataframe()
+        self.data_panel.handle_data_to_tables()
 
     def refresh(self):
         self.root.update()
         self.root.after(1000, self.refresh)
+
+    def taiga_data_ready(self):
+        return self.data_panel.taiga_data_ready()
+    
+    def get_taiga_data(self):
+        return self.data_panel.get_taiga_data()
     
 class ConfigFrame(ttk.Frame):
     def __init__(self, parent: TaigaFrame, dc: DataController):
@@ -71,42 +73,26 @@ class ConfigFrame(ttk.Frame):
         temp_lbl = ttk.Label(self, text='Handling Taiga API Import Call, Please Wait...')
         temp_lbl.pack()
 
-        result, msg = self.dc.taiga_import_by_api()
-        # messagebox.showinfo(result, msg)
-        self.parent_frame.setup_dataframe()
-        temp_lbl.destroy()
-
-        # try:
-        #     result, msg = self.dc.taiga_import_by_api()
-
-        #     if result == 'Success':
-        #         messagebox.showinfo(result, msg)
-        #         self.parent_frame.setup_dataframe()
-        #         # try:
-        #         #     self.parent_frame.setup_dataframe()
-        #         # except Exception as e:
-        #         #     messagebox.showerror('ERROR', e)
-        #     else:
-        #         messagebox.showerror(result, msg)
-        # except:
-        #     messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
-        # finally:
-        #     temp_lbl.destroy()
+        try:
+            result, msg = self.dc.taiga_import_by_api()
+            if result == 'Success':
+                self.parent_frame.setup_dataframe()
+            else:
+                messagebox.showerror(result, msg)
+        except:
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
+        finally:
+            temp_lbl.destroy()
 
     def import_by_csv_urls(self, us_url, task_url):
-        temp_lbl = ttk.Label(self, text='Handling Taiga API Import Call, Please Wait...')
+        temp_lbl = ttk.Label(self, text='Handling Taiga CSV URL Import Call, Please Wait...')
         temp_lbl.pack()
 
         try:
             result, msg = self.dc.taiga_import_by_urls(us_url, task_url)
 
             if result == 'Success':
-                messagebox.showinfo(result, msg)
                 self.parent_frame.setup_dataframe()
-                # try:
-                #     self.parent_frame.setup_dataframe()
-                # except Exception as e:
-                #     messagebox.showerror('ERROR', e)
             else:
                 messagebox.showerror(result, msg)
         except:
@@ -118,28 +104,17 @@ class ConfigFrame(ttk.Frame):
         temp_lbl = ttk.Label(self, text='Handling Taiga File Import Call, Please Wait...')
         temp_lbl.pack()
 
-        result, msg = self.dc.taiga_import_by_files(us_fp, task_fp)
-        self.parent_frame.setup_dataframe()
-        temp_lbl.destroy()
+        try:
+            result, msg = self.dc.taiga_import_by_files(us_fp, task_fp)
 
-        # try:
-        #     result, msg = self.dc.taiga_import_by_files(us_fp, task_fp)
-
-        #     if result == 'Success':
-
-        #         self.parent_frame.setup_dataframe()
-        #         try:
-        #             self.parent_frame.setup_dataframe()
-        #         except Exception as e:
-        #             messagebox.showerror('ERROR', e)
-
-        #         messagebox.showinfo(result, msg)
-        #     else:
-        #         messagebox.showerror(result, msg)
-        # except:
-        #     messagebox.showerror('ERROR', 'Failed to import Taiga data by file')
-        # finally:
-        #     temp_lbl.destroy()
+            if result == 'Success':
+                self.parent_frame.setup_dataframe()
+            else:
+                messagebox.showerror(result, msg)
+        except:
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by file')
+        finally:
+            temp_lbl.destroy()
 
     def ready_for_project_sel(self):
         self.project_link_btn['state'] = 'normal'
@@ -563,16 +538,45 @@ class DataFrame(ttk.Frame):
         self.members : list[str] = None  
         self.user_stories : list[str] = None
 
-        self.us_table_frame : ttk.Frame = None
         self.us_table_sheet : tks.Sheet = None
-        self.tasks_table_frame : ttk.Frame = None
         self.tasks_table_sheet : tks.Sheet = None
 
         self.data_frame : ttk.Frame = None
         self.parent_frame = parent
         self.dc = dc
 
-    def pull_taiga_data(self):
+    def taiga_data_ready(self):
+        us_data_ready = self.curr_us_df is not None and len(self.curr_us_df) > 0
+        task_data_ready = self.curr_tasks_df is not None and len(self.curr_tasks_df) > 0
+        return us_data_ready and task_data_ready
+    
+    def get_taiga_data(self):
+        return self.curr_us_df, self.curr_tasks_df
+
+    def handle_data_to_tables(self):
+        self.import_data_to_tables()
+
+        if self.data_frame is None:
+            self.init_and_display_dataframe()
+        else:
+            self.update_sheets()
+
+    def update_sheets(self):
+        self.us_table_sheet.set_data(data=self.us_df_to_table_format(self.curr_us_df).values.tolist(), redraw=True)
+        self.tasks_table_sheet.set_data(data=self.tasks_df_to_table_format(self.curr_tasks_df).values.tolist(), redraw=True)
+
+    def save_data(self):
+        print(self.curr_tasks_df)
+        self.dc.update_us_df(self.curr_us_df)
+        self.dc.update_tasks_df(self.curr_tasks_df, ['task_num', 'us_num', 'is_coding', 'is_complete', 'assignee', 'task_subject'])
+
+    def clear_data(self):
+        ans = messagebox.askquestion(title='Delete All Taiga Data', message='Are you sure?')
+        if ans == 'yes':
+            print('Deleting Taiga Data...')
+
+
+    def import_data_to_tables(self):
         self.us_df_master = self.dc.update_df(self.us_df_master, self.dc.get_us_df())
         self.tasks_df_master = self.dc.update_df(self.tasks_df_master, self.dc.get_task_df(), 'id', ['task_num', 'us_num', 'is_complete', 'assignee', 'task_subject'])
 
@@ -586,12 +590,25 @@ class DataFrame(ttk.Frame):
     def _inv_val_format(self, df: pd.DataFrame):
         df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
 
-    def us_df_format(self, df : pd.DataFrame) -> pd.DataFrame:
+    def us_df_to_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
+        df_copy = df.copy(deep=True)
+        self._inv_val_format(df_copy)
+        df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
+        df_copy['us_num'] = df_copy['us_num'].astype(pd.Int64Dtype())
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.StringDtype())
+        df_copy['is_complete'].replace({'True': 'Complete', 'False': 'In Process'}, inplace=True)
+        df_copy['points'] = df_copy['points'].astype(pd.Int64Dtype())
+        df_copy['sprint'].replace({pd.NA: 'Not Assigned'}, inplace=True)
+        return df_copy
+
+    def us_df_from_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
         df_copy = df.copy(deep=True)
         self._inv_val_format(df_copy)
         df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
         df_copy['us_num'] = df_copy['us_num'].astype(pd.Int64Dtype())
         df_copy['points'] = df_copy['points'].astype(pd.Int64Dtype())
+        df_copy['is_complete'].replace({'Complete': '1', 'In-process': '0'}, inplace=True)
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.Int64Dtype())
         df_copy['is_complete'] = df_copy['is_complete'].astype(pd.BooleanDtype())
         return df_copy
 
@@ -600,118 +617,29 @@ class DataFrame(ttk.Frame):
         self._inv_val_format(df_copy)
         df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
         df_copy['task_num'] = df_copy['task_num'].astype(pd.Int64Dtype())
-        df_copy['us_num'] = df_copy['us_num'].astype(pd.StringDtype())
         df_copy['is_coding'] = df_copy['is_coding'].astype(pd.BooleanDtype())
-        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.StringDtype())
-
+        df_copy['us_num'] = df_copy['us_num'].astype(pd.StringDtype())
         df_copy['us_num'].replace(pd.NA, 'Storyless', inplace=True)
+        df_copy['is_complete'] = df_copy['is_complete'].astype(pd.StringDtype())
+        df_copy['is_complete'].replace({'True': 'Complete', 'False': 'In-process'}, inplace=True)
         df_copy['assignee'].replace(pd.NA, 'Unassigned', inplace=True)
-        df_copy['is_complete'].replace({'1': 'Complete', '0': 'In-process'}, inplace=True)
         return df_copy
 
     def tasks_df_from_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
         df_copy = df.copy(deep=True)
         self._inv_val_format(df_copy)
-        df_copy['us_num'].replace('Storyless', pd.NA, inplace=True)
-        df_copy['is_complete'].replace({'Complete': '1', 'In-process': '0'}, inplace=True)
-        df_copy['is_coding'].replace({'True': '1', 'False': '0'}, inplace=True)
-        df_copy['assignee'].replace('Unassigned', pd.NA, inplace=True)
-
         df_copy['id'] = df_copy['id'].astype(pd.Int64Dtype())
-        df_copy['task_num'] = df_copy['task_num'].astype(pd.Int64Dtype())
+        df_copy['us_num'].replace('Storyless', pd.NA, inplace=True)
         df_copy['us_num'] = df_copy['us_num'].astype(pd.Int64Dtype())
+        df_copy['task_num'] = df_copy['task_num'].astype(pd.Int64Dtype())
         df_copy['is_coding'] = df_copy['is_coding'].astype(pd.BooleanDtype())
+        df_copy['is_complete'].replace({'Complete': '1', 'In-process': '0'}, inplace=True)
         df_copy['is_complete'] = df_copy['is_complete'].astype(pd.Int64Dtype())
         df_copy['is_complete'] = df_copy['is_complete'].astype(pd.BooleanDtype())
+        df_copy['assignee'].replace('Unassigned', pd.NA, inplace=True)
         return df_copy
-    
-    def us_df_from_sheet(self) -> pd.DataFrame:
-        sheet = self.us_table_sheet
-        if sheet:
-            headers = sheet.headers()
-            num_rows = sheet.get_total_rows()
 
-            data = None
-            if num_rows > 0:
-                if sheet.get_total_rows() == 1:
-                    data = []
-                    data.append(sheet.get_data())
-                else:
-                    data = sheet.get_data()
-
-            df = pd.DataFrame(data=data, columns=headers)
-            return self.us_df_format(df)
-    
-    def task_df_from_sheet(self) -> pd.DataFrame:
-        sheet = self.tasks_table_sheet
-        if sheet:
-            headers = sheet.headers()
-            num_rows = sheet.get_total_rows()
-
-            data = None
-            if num_rows > 0:
-                if sheet.get_total_rows() == 1:
-                    data = []
-                    data.append(sheet.get_data())
-                else:
-                    data = sheet.get_data()
-
-            df = pd.DataFrame(data=data, columns=headers)
-            return self.tasks_df_from_table_format(df)
-        
-    def refresh_us_table(self):
-        def filter():
-            pass
-        pass
-
-        # self.us_table_sheet.set_sheet_data(data=df.values.tolist())
-        
-    def refresh_task_table(self):
-        def filter_data():
-            pass
-        #     filter_applied = False
-        #     df = self.task_df_from_sheet()
-
-        #     if self.us_opt_sel.selection_made():
-        #         filter_applied = True
-        #         us = self.us_opt_sel.get_selection()
-        #         us_filter = pd.NA if us == 'Storyless' else int(us)
-        #         df = df[df['us_num'] == us_filter]
-        #     if self.user_opt_sel.selection_made():
-        #         filter_applied = True
-        #         user = self.user_opt_sel.get_selection()
-        #         user_filter = pd.NA if user == 'Unassigned' else user
-        #         df = df[df['asignee'] == user_filter]
-        #     if self.coding_opt_sel.selection_made():
-        #         filter_applied = True
-        #         coding = self.coding_opt_sel.get_selection()
-        #         coding_filter = True if coding == 'True' else False
-        #         df = df[df['is_coding'] == coding_filter]
-
-        #     if filter_applied:
-        #         self.clear_filters_btn['state'] = 'normal'
-
-        # self.tasks_table_sheet.set_sheet_data(data=df.values.tolist())
-
-    
-
-        
-
-    def build_dataframe(self):
-
-        def update_tables():
-            self.curr_us_df = self.dc.update_df(self.us_df_from_sheet(), self.curr_us_df)
-            self.curr_tasks_df = self.dc.update_df(self.task_df_from_sheet(), self.curr_tasks_df, 'id', ['task_num', 'us_num', 'is_complete', 'assignee', 'task_subject'])
-
-        def save_data():
-            update_tables()
-            self.dc.update_us_df(self.curr_us_df)
-            self.dc.update_tasks_df(self.curr_tasks_df, ['task_num', 'us_num', 'is_coding', 'is_complete', 'assignee', 'task_subject'])
-            self.build_dataframe()
-
-        def clear_data():
-            pass
-
+    def init_and_display_dataframe(self):
         def generate_field_obj(parent, lbl_str, target_obj):
             field_lbl = ttk.Label(parent, text=lbl_str, anchor='e')
             field_lbl.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
@@ -719,40 +647,157 @@ class DataFrame(ttk.Frame):
 
         def build_header_frame(data_frame):
             def build_tab_btn_frame(parent):
-                btn_frame = ttk.Frame(parent)
-                save_data_btn = ttk.Button(btn_frame, text='Save Current Table', command=save_data)
-                clear_data_btn = ttk.Button(btn_frame, text='Clear All Taiga Data', command=clear_data)
-                save_data_btn.grid(row=0, column=0, padx=(2, 1), sticky='nsew')
-                clear_data_btn.grid(row=0, column=1, padx=(2, 1), sticky='nsew')
-                return btn_frame
+                widget_frame = ttk.Frame(parent)
+                btn_frame = ttk.Frame(widget_frame)
+                save_data_btn = ttk.Button(btn_frame, text='Save Taiga Data', command=self.save_data)
+                clear_data_btn = ttk.Button(btn_frame, text='Clear All Taiga Data', command=self.clear_data)
+                save_data_btn.grid(row=0, column=0, padx=(2, 1))
+                clear_data_btn.grid(row=0, column=1, padx=(2, 1))
+                btn_frame.pack(anchor='e')
+                return widget_frame
 
             header_frame = ttk.Frame(data_frame)
-            taiga_data_header_lbl = ttk.Label(header_frame, text=f'{' ' * 4}Taiga Data{' ' * 4}', font=('Arial', 15))
+            # taiga_data_header_lbl = ttk.Label(header_frame, text=f'{' ' * 4}Taiga Data{' ' * 4}', font=('Arial', 15))
             btn_frame = build_tab_btn_frame(header_frame)
-
-            taiga_data_header_lbl.pack(pady=2)
-            btn_frame.pack(pady=2)
-
+            # taiga_data_header_lbl.pack(pady=2)
+            btn_frame.pack(fill='x', pady=2)
             return header_frame
 
         ## US Tab Creation
         ##=========================================================================================================================================
-        def build_us_tab(parent=None):
-            def build_filter_panel():
-                pass
+        def build_us_tab(parent):
+            ## Useful Variables
+            padx = 3
+            sticky = 'nsew'
 
-            def build_table():
-                pass
+            sprint_options = [None, 'None', 'Not Assigned'] + self.sprints
+            completion_options = [None, 'None', 'Complete', 'In Process']
 
-            if not self.us_table_frame:
-                widget_frame = ttk.Frame(parent)
-                return widget_frame
-            else:
-                update_tables()
+            sprint_select_strvar = StringVar()
+            completion_select_strvar = StringVar()
+
+            def apply_filters(*args):
+                sprint = sprint_select_strvar.get()
+                compl = completion_select_strvar.get()
+
+                sprint_filter = sprint != 'None'
+                completion_filter = compl != 'None'
+
+                if sprint_filter or completion_filter:
+                    rows = []
+                    for rn, row in enumerate(self.us_table_sheet.data):
+                        row_match = True
+
+                        if sprint_filter and row[3] != sprint:
+                            row_match = False
+                        
+                        if completion_filter and row[2] != compl:
+                            row_match = False
+
+                        print(row_match)
+
+                        if row_match:
+                            rows.append(rn)
+
+                    self.us_table_sheet.display_rows(rows=rows, all_displayed=False, redraw=True)
+                    self.us_clear_filters_btn['state'] = 'normal'
+                else:
+                    self.us_clear_filters_btn['state'] = 'disabled'
+                    self.us_table_sheet.display_rows('all', redraw=True)
+
+            def us_table_change(event):
+                change_dict = { 'is_complete': {'Complete': True, 'In-process': False } }
+
+                for (row, col), old_value in event.cells.table.items():
+                    try:
+                        # Convert data type based on original DataFrame column type
+                        col_name = self.curr_us_df.columns[col]
+                        new_val = not change_dict[col_name][old_value]  # Since the event only returns the old value
+                        self.curr_us_df.at[row, col_name] = new_val  # Update DataFrame
+
+                        print(f"Updated US DataFrame: \nRow - {row}, Column Name - {col_name}, New Value - {new_val}\n")  # Debug print
+                    except Exception as e:
+                        print(f"Error updating DataFrame: {e}")
+
+                self.us_table_sheet.reset_changed_cells()  # Clear change tracker after update
+
+            def build_filter_panel(parent_frame):
+                def clear_filters():
+                    sprint_opt_sel.reset()
+                    completion_opt_sel.reset()
+                
+                filter_frame = ttk.Frame(parent_frame)
+                options_frame = ttk.Frame(filter_frame)
+
+                sprint_filter_frame = ttk.Frame(options_frame)
+                complete_filter_frame = ttk.Frame(options_frame)
+        
+                filter_section_lbl = ttk.Label(options_frame, text='Filters:', font=('Arial', 11, 'bold'))
+                sprint_opt_sel = CustomOptionMenu(sprint_filter_frame, sprint_select_strvar, *sprint_options)
+                generate_field_obj(sprint_filter_frame, 'Sprint:', sprint_opt_sel)
+                completion_opt_sel = CustomOptionMenu(complete_filter_frame, completion_select_strvar, *completion_options)
+                generate_field_obj(complete_filter_frame, 'Complete:', completion_opt_sel)
+                self.us_clear_filters_btn = ttk.Button(options_frame, text='Clear Filters', state='disabled', command=clear_filters)
+
+                sprint_select_strvar.trace_add(mode='write', callback=apply_filters)
+                completion_select_strvar.trace_add(mode='write', callback=apply_filters)
+
+                filter_section_lbl.grid(row=0, column=0, padx=padx, sticky=sticky)
+                sprint_filter_frame.grid(row=0, column=1, padx=padx, sticky=sticky)
+                complete_filter_frame.grid(row=0, column=3, padx=padx, sticky=sticky)
+                self.us_clear_filters_btn.grid(row=0, column=4, padx=padx, sticky=sticky)
+                
+                options_frame.pack(pady=(4, 4), anchor='w')
+                return filter_frame
+
+            def build_table_panel(parent_frame):
+                table_frame = ttk.Frame(parent_frame)
+                
+                df = self.us_df_to_table_format(self.curr_us_df)
+                rows = len(df)
+                cols = len(df.columns)
+
+                self.us_table_sheet = tks.Sheet(table_frame, data=df.values.tolist(), header=df.columns.tolist(), width=500)
+
+                column_widths = []
+                index = 0
+                total_width = 0
+                for column in df.columns.tolist():
+                    text_width = self.us_table_sheet.get_column_text_width(index)
+                    # if column == 'task_subject':
+                    #     text_width = 500
+
+                    column_widths.append(text_width)
+                    total_width += text_width
+                    index += 1
+
+                self.us_table_sheet.enable_bindings()
+                self.us_table_sheet.disable_bindings('move_columns', 'move_rows', 'edit_cell', 'rc_insert_column', 'rc_delete_column')
+                self.us_table_sheet.readonly_columns(columns=[0, 1, 2, 3, 4, 5])
+                self.us_table_sheet.pack(fill='y', expand=True)
+
+                self.us_table_sheet.set_sheet_data_and_display_dimensions(total_rows=rows, total_columns=cols)
+                self.us_table_sheet.config(width=(total_width * 1.15))
+                self.us_table_sheet.set_all_cell_sizes_to_text()
+                return table_frame
+            
+            widget_frame = ttk.Frame(parent)
+            hdr_frame = ttk.Frame(widget_frame, borderwidth=2, relief='ridge')
+            
+            hdr_lbl =  ttk.Label(hdr_frame, text=f'{' ' * 4}User Story Data{' ' * 4}', font=('Arial', 13, 'bold'))
+            hdr_lbl.pack()
+            filter_panel = build_filter_panel(widget_frame)
+            table_panel = build_table_panel(widget_frame)
+
+            hdr_frame.pack(fill='x') 
+            filter_panel.pack() 
+            table_panel.pack(expand = 1, fill='y') 
+            
+            return widget_frame
         
         ## Task Tab Creation
         ##=========================================================================================================================================
-        def build_task_tab(parent=None):
+        def build_task_tab(parent):
             ## Useful Variables
             padx = 3
             sticky = 'nsew'
@@ -766,96 +811,45 @@ class DataFrame(ttk.Frame):
             coding_select_strvar = StringVar()
 
             def apply_filters(*args):
-                print('TEST')
-                filter_applied = False
                 us = us_select_strvar.get()
                 user = user_select_strvar.get()
-                coding = coding_select_strvar.get()
+                coding_val = coding_select_strvar.get()
+                coding = coding_val if coding_val == 'None' else eval(coding_val)
 
-                if us != 'None':
-                    filter_applied = True
-                    print(f'US: {us}')
-                    
-                    pass
+                us_filter = us != 'None'
+                user_filter = user != 'None'
+                coding_filter = coding != 'None'
 
-                if user != 'None':
-                    filter_applied = True
-                    print(f'User: {user}')
+                if us_filter or user_filter or coding_filter:
+                    rows = []
+                    for rn, row in enumerate(self.tasks_table_sheet.data):
+                        row_match = True
 
-                    pass
+                        if us_filter and row[2] != us:
+                            row_match = False
+                        if user_filter and row[5] != user:
+                            row_match = False
+                        if coding_filter and row[3] != coding:
+                            row_match = False
 
-                if coding != 'None':
-                    filter_applied = True
-                    print(f'Is Coding: {coding}')
+                        if row_match:
+                            rows.append(rn)
 
-                    pass
-
-                if filter_applied:
-                    self.clear_filters_btn['state'] = 'normal'
+                    self.tasks_table_sheet.display_rows(rows=rows, all_displayed=False, redraw=True)
+                    self.task_clear_filters_btn['state'] = 'normal'
                 else:
-                    self.clear_filters_btn['state'] = 'disabled'
-
-            def build_filter_panel(parent_frame):
-                
-                def clear_filters():
-                    us_opt_sel.reset()
-                    user_opt_sel.reset()
-                    coding_opt_sel.reset()
-
-                def build_filters_btn_frame():
-                    btn_frame = ttk.Frame(filter_frame)
-                    apply_filters_btn = ttk.Button(btn_frame, text='Apply Filters', command=apply_filters)
-                    self.clear_filters_btn = ttk.Button(btn_frame, text='Clear Filters', state='disabled', command=clear_filters)
-                    apply_filters_btn.grid(row=0, column=0, padx=2, sticky=sticky)
-                    self.clear_filters_btn.grid(row=0, column=1, padx=2, sticky=sticky)
-                    return btn_frame
-                
-                filter_frame = ttk.Frame(parent_frame)
-                filter_header = ttk.Label(filter_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 11), borderwidth=2, relief='ridge')
-
-                options_frame = ttk.Frame(filter_frame)
-                us_filter_frame = ttk.Frame(options_frame)
-                user_filter_frame = ttk.Frame(options_frame)
-                coding_filter_frame = ttk.Frame(options_frame)
-
-                us_opt_sel = CustomOptionMenu(us_filter_frame, us_select_strvar, *us_options)
-                generate_field_obj(us_filter_frame, 'User Story:', us_opt_sel)
-                user_opt_sel = CustomOptionMenu(user_filter_frame, user_select_strvar, *user_options)
-                generate_field_obj(user_filter_frame, 'Assigned To:', user_opt_sel)
-                coding_opt_sel = CustomOptionMenu(coding_filter_frame, coding_select_strvar, *coding_options)
-                generate_field_obj(coding_filter_frame, 'Coding Task:', coding_opt_sel)
-
-                us_select_strvar.trace_add(mode='write', callback=apply_filters)
-                user_select_strvar.trace_add(mode='write', callback=apply_filters)
-                coding_select_strvar.trace_add(mode='write', callback=apply_filters)
-
-                us_filter_frame.grid(row=0, column=0, padx=padx, sticky=sticky)
-                user_filter_frame.grid(row=0, column=1, padx=padx, sticky=sticky)
-                coding_filter_frame.grid(row=0, column=2, padx=padx, sticky=sticky)
-
-                btn_frame = build_filters_btn_frame()
-                
-                filter_header.pack()
-                options_frame.pack(pady=(4, 2))
-                btn_frame.pack(pady=(2, 2))
-                filter_frame.pack()
-
-            
+                    self.task_clear_filters_btn['state'] = 'disabled'
+                    self.tasks_table_sheet.display_rows('all', redraw=True)
 
             def task_table_change(event):
-                change_dict = {
-                    'is_coding': {
-                        np.True_: True,
-                        np.False_: False
-                    }
-                }
+                change_dict = { 'is_coding': { np.True_: True, np.False_: False } }
 
                 for (row, col), old_value in event.cells.table.items():
                     try:
                         # Convert data type based on original DataFrame column type
                         col_name = self.curr_tasks_df.columns[col]
                         new_val = not change_dict[col_name][old_value]  # Since the event only returns the old value
-                        self.curr_tasks_df.at[row, col_name] = old_value  # Update DataFrame
+                        self.curr_tasks_df.at[row, col_name] = new_val  # Update DataFrame
 
                         print(f"Updated Tasks DataFrame: \nRow - {row}, Column Name - {col_name}, New Value - {new_val}\n")  # Debug print
                     except Exception as e:
@@ -863,12 +857,49 @@ class DataFrame(ttk.Frame):
 
                 self.tasks_table_sheet.reset_changed_cells()  # Clear change tracker after update
 
-            def build_table_panel(parent_frame):
-                if self.tasks_table_sheet:
-                    self.tasks_table_sheet.destroy()
+            def build_filter_panel(parent_frame):
+                def clear_filters():
+                    us_opt_sel.reset()
+                    user_opt_sel.reset()
+                    coding_opt_sel.reset()
+                
+                filter_frame = ttk.Frame(parent_frame)
+                options_frame = ttk.Frame(filter_frame)
 
+                us_filter_frame = ttk.Frame(options_frame)
+                user_filter_frame = ttk.Frame(options_frame)
+                coding_filter_frame = ttk.Frame(options_frame)
+        
+                filter_section_lbl = ttk.Label(options_frame, text='Filters:', font=('Arial', 11, 'bold'))
+                us_opt_sel = CustomOptionMenu(us_filter_frame, us_select_strvar, *us_options)
+                generate_field_obj(us_filter_frame, 'User Story:', us_opt_sel)
+                user_opt_sel = CustomOptionMenu(user_filter_frame, user_select_strvar, *user_options)
+                generate_field_obj(user_filter_frame, 'Assigned To:', user_opt_sel)
+                coding_opt_sel = CustomOptionMenu(coding_filter_frame, coding_select_strvar, *coding_options)
+                generate_field_obj(coding_filter_frame, 'Coding Task:', coding_opt_sel)
+                self.task_clear_filters_btn = ttk.Button(options_frame, text='Clear Filters', state='disabled', command=clear_filters)
+
+                us_select_strvar.trace_add(mode='write', callback=apply_filters)
+                user_select_strvar.trace_add(mode='write', callback=apply_filters)
+                coding_select_strvar.trace_add(mode='write', callback=apply_filters)
+
+                filter_section_lbl.grid(row=0, column=0, padx=padx, sticky=sticky)
+                us_filter_frame.grid(row=0, column=1, padx=padx, sticky=sticky)
+                user_filter_frame.grid(row=0, column=2, padx=padx, sticky=sticky)
+                coding_filter_frame.grid(row=0, column=3, padx=padx, sticky=sticky)
+                self.task_clear_filters_btn.grid(row=0, column=4, padx=padx, sticky=sticky)
+                
+                options_frame.pack(pady=(4, 4), anchor='w')
+                return filter_frame
+
+            def build_table_panel(parent_frame):
+                table_frame = ttk.Frame(parent_frame)
+                
                 df = self.tasks_df_to_table_format(self.curr_tasks_df)
-                self.tasks_table_sheet = tks.Sheet(parent_frame, data=df.values.tolist(), header=df.columns.tolist())
+                rows = len(df)
+                cols = len(df.columns)
+
+                self.tasks_table_sheet = tks.Sheet(table_frame, data=df.values.tolist(), header=df.columns.tolist())
                 self.tasks_table_sheet.create_dropdown('all', 3, values=[np.True_, np.False_])
                 for row, value in enumerate(df['is_coding']):
                     self.tasks_table_sheet.set_cell_data(row, 3, value)
@@ -883,340 +914,43 @@ class DataFrame(ttk.Frame):
                     column_widths.append(text_width)
                     index += 1
 
-                self.tasks_table_sheet.set_column_widths(column_widths)
-                # Bind event listener for edits
-
                 self.tasks_table_sheet.enable_bindings()
                 self.tasks_table_sheet.extra_bindings("end_edit_cell", task_table_change)  # Call function after edit
-                self.tasks_table_sheet.disable_bindings('move_columns', 'move_rows')
+                self.tasks_table_sheet.disable_bindings('move_columns', 'move_rows', 'rc_insert_column', 'rc_delete_column')
                 self.tasks_table_sheet.readonly_columns(columns=[0, 1, 2, 4, 5, 6])
                 self.tasks_table_sheet.pack(fill='both', expand=True, pady=(0, 5))
-                
-            if not self.tasks_table_frame:
-                widget_frame = ttk.Frame(parent)
-                hdr_lbl =  ttk.Label(widget_frame, text=f'{' ' * 4}Taiga Tasks Data{' ' * 4}', font=('Arial', 14))
-                self.tasks_table_frame = ttk.Frame(widget_frame)
 
-                hdr_lbl.pack(fill ='x') 
-                build_filter_panel(widget_frame)
-                build_table_panel(self.tasks_table_frame)
-                self.tasks_table_frame.pack(expand = 1, fill ="both") 
-                return widget_frame
-            else:
-                build_table_panel(self.tasks_table_frame)
+                self.tasks_table_sheet.set_sheet_data_and_display_dimensions(total_rows=rows, total_columns=cols)
+                self.tasks_table_sheet.set_column_widths(column_widths)
 
+                return table_frame
+
+            widget_frame = ttk.Frame(parent)
+            hdr_frame = ttk.Frame(widget_frame, borderwidth=2, relief='ridge')
             
-        
+            hdr_lbl =  ttk.Label(hdr_frame, text=f'{' ' * 4}Task Data{' ' * 4}', font=('Arial', 13, 'bold'))
+            hdr_lbl.pack()
+            filter_panel = build_filter_panel(widget_frame)
+            table_panel = build_table_panel(widget_frame)
+
+            hdr_frame.pack(fill='x') 
+            filter_panel.pack() 
+            table_panel.pack(expand = 1, fill ="both") 
+            
+            return widget_frame
+
         ## DataFrame build logic
         ##=========================================================================================================================================
-        self.pull_taiga_data()
+        self.data_frame = ttk.Frame(self)
+        header_frame = build_header_frame(self.data_frame)
 
-        if not self.data_frame:
-            update_tables()
+        tabControl = ttk.Notebook(self.data_frame)
+        us_data_tab = build_us_tab(tabControl)
+        task_data_tab = build_task_tab(tabControl)
 
-            self.data_frame = ttk.Frame(self)
-            header_frame = build_header_frame(self.data_frame)
+        tabControl.add(us_data_tab, text='User Story Data')
+        tabControl.add(task_data_tab, text='Task Data')
 
-            tabControl = ttk.Notebook(self.data_frame)
-            us_data_tab = build_us_tab(tabControl)
-            task_data_tab = build_task_tab(tabControl)
-
-            tabControl.add(us_data_tab, text='User Story Data')
-            tabControl.add(task_data_tab, text='Task Data')
-
-            header_frame.pack(fill ='x') 
-            tabControl.pack(expand = 1, fill ="both") 
-            self.data_frame.pack(expand = 1, fill ="both") 
-        else:
-            update_tables()
-            build_us_tab()
-            build_task_tab()
-
-
-
-
-
-
-
-
-
-
-
-
-    def taiga_data_ready(self) -> bool:
-        return self.sheet_master_df is not None
-    
-    def get_taiga_df(self) -> pd.DataFrame:
-        return self.sheet_master_df.copy(deep=True)
-    
-    def sheet_df_col_to_list(self, col_lbl) -> list:
-        df = self.sheet_master_df[col_lbl].copy(deep=True)
-        self.__inv_val_to_none(df)
-        df.dropna(inplace=True)
-        df = df.drop_duplicates(keep='first').reset_index(drop=True)
-        return df.tolist()
-    
-    def get_members(self) -> list:
-        return self.sheet_df_col_to_list('assigned_to')
-    
-    def get_sprints(self) -> list:
-        return self.sheet_df_col_to_list('sprint')
-
-    def __destroy_frames(self):
-        if self.filter_panel is not None:
-            self.filter_panel.destroy()
-        if self.btn_frame is not None:
-            self.btn_frame.destroy()
-        if self.sheet is not None:
-            self.sheet.destroy()
-
-    
-
-    def __convert_to_str(self, val):
-        if val == -1 or pd.isna(val):
-            return 'Storyless'
-        else:
-            return f'{int(val)}'
-    
-    def __convert_from_str(self, str_val):
-        if str_val == 'Storyless' or str_val == '' or pd.isna(str_val):
-            return None
-        else:
-            return int(str_val)
-        
-    def __inv_val_to_none(self, df: Type[pd.DataFrame]):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
-    
-    def __dataframe_to_table_format(self, df_to_format: Type[pd.DataFrame]):
-        df = df_to_format.copy(deep=True)
-        self.__inv_val_to_none(df)
-        df['user_story'] = df['user_story'].apply(lambda x: self.__convert_to_str(x))
-        return df
-
-    def __table_to_dataframe_format(self, df_to_format: Type[pd.DataFrame]):
-        df = df_to_format.copy(deep=True)
-        df['user_story'] = df['user_story'].apply(lambda x: self.__convert_from_str(x))
-        return df
-    
-    def __parse_table_data_to_df(self):
-        headers = self.sheet.headers()
-        num_rows = self.sheet.get_total_rows()
-
-        if num_rows > 0:
-            if self.sheet.get_total_rows() == 1:
-                data = []
-                data.append(self.sheet.get_data())
-            else:
-                data = self.sheet.get_data()
-
-            df = pd.DataFrame(data, columns=headers)
-            df.replace('', None, inplace=True)
-            df.dropna(how='all', inplace=True)
-
-            formatted_df = self.__table_to_dataframe_format(df)
-        else:
-            formatted_df = self.sheet_master_df
-        
-        return formatted_df
-    
-    def __merge_dataframes(self, master_df, new_df):
-        self.__inv_val_to_none(master_df)
-        self.__inv_val_to_none(new_df)
-        master_df.set_index('task', inplace=True)
-        master_df.update(new_df.set_index('task'))
-        master_df.reset_index(inplace=True)
-        master_df.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])
-        return master_df[['sprint', 'sprint_start', 'sprint_end', 'user_story', 'points', 'task', 'assigned_to', 'coding', 'subject']]
-
-    def __update_sheet_df(self, new_df):
-        if self.sheet_master_df is not None:
-            master_copy = self.sheet_master_df.copy(deep=True)
-            new_df_copy = new_df.copy(deep=True)
-            master_copy = self.__merge_dataframes(master_copy, new_df_copy)
-            self.sheet_master_df = master_copy.sort_values(['sprint', 'user_story', 'task'], ascending=[True, True, True])
-        else:
-            self.master_df = new_df
-            self.sheet_master_df = new_df
-
-    def __apply_filters(self, 
-                        from_date_field: Type[CustomDateEntry], 
-                        to_date_field: Type[CustomDateEntry], 
-                        us_field: Type[CustomOptionMenu], 
-                        sprint_field: Type[CustomOptionMenu], 
-                        user_field: Type[CustomOptionMenu]
-                        ):
-        old_df = self.__parse_table_data_to_df()
-        self.__update_sheet_df(old_df)
-        df = self.sheet_master_df
-
-        filter_applied = False
-
-        if from_date_field.date_selected():
-            filter_applied = True
-            from_date = from_date_field.get_date()
-            df = df[pd.to_datetime(df['sprint_end']) >= pd.to_datetime(from_date)]
-        if to_date_field.date_selected():
-            filter_applied = True
-            to_date = to_date_field.get_date()
-            df = df[pd.to_datetime(df['sprint_start']) <= pd.to_datetime(to_date)]
-        if us_field.selection_made():
-            filter_applied = True
-            us = us_field.get_selection()
-            if us != 'Storyless':
-                df = df[df['user_story'] == int(us)]
-            else:
-                df = df[df['user_story'] == -1]
-        if sprint_field.selection_made():
-            filter_applied = True
-            sprint = sprint_field.get_selection()
-            df = df[df['sprint'] == sprint]
-        if user_field.selection_made():
-            filter_applied = True
-            user = user_field.get_selection()
-            df = df[df['assigned_to'] == user]
-
-        if filter_applied:
-            self.clear_filters_btn['state'] = 'normal'
-
-        self.change_table(df)
-
-    def __clear_filters(self, 
-                        from_date_field: Type[CustomDateEntry], 
-                        to_date_field: Type[CustomDateEntry], 
-                        us_field: Type[CustomOptionMenu], 
-                        sprint_field: Type[CustomOptionMenu], 
-                        user_field: Type[CustomOptionMenu]
-                        ):
-        df = self.__parse_table_data_to_df()
-        self.__update_sheet_df(df)
-
-        from_date_field.clear_date()
-        to_date_field.clear_date()
-        us_field.reset()
-        sprint_field.reset()
-        user_field.reset()
-
-        self.clear_filters_btn['state'] = 'disabled'
-        self.change_table(self.sheet_master_df)
-
-    def __save_table_data(self):
-        df = self.__parse_table_data_to_df()
-        self.sheet_master_df = df
-        self.master_df = self.sheet_master_df
-        self.dc.set_taiga_master_df(df)
-        self.dc.store_raw_taiga_data()
-
-    def __clear_data(self):
-        self.dc.clear_taiga_data()
-        self.master_df = None
-        self.sheet_master_df = None
-        self.__destroy_frames()
-
-    def __build_filter_panel(self) -> ttk.Frame: 
-        widget_frame = ttk.Frame(self, borderwidth=2, relief='ridge')
-
-        filters_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Filter Options{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
-        
-        filters_frame = ttk.Frame(widget_frame)
-        date_frame = ttk.Frame(filters_frame)
-        opt_frame = ttk.Frame(filters_frame)
-        btn_frame = ttk.Frame(filters_frame)
-
-        us_select_def = StringVar(opt_frame)
-        us_options = ['', 'Storyless'] + self.dc.get_user_stories()
-        us_select_def.set(us_options[0])
-
-        sprint_select_def = StringVar(opt_frame)
-        sprint_options = [''] + self.dc.get_sprints()
-        sprint_select_def.set(sprint_options[0])
-
-        user_select_def = StringVar(opt_frame)
-        user_options = ['', 'Unassigned'] + self.dc.get_members()
-        user_select_def.set(user_options[0])
-
-        # Date Filters
-        from_frame = ttk.Frame(date_frame)
-        to_frame = ttk.Frame(date_frame)
-
-        from_date_entry = self.__generate_field_obj(from_frame, 'From Date:', CustomDateEntry(from_frame, width=8))
-        to_date_entry = self.__generate_field_obj(to_frame, 'To Date:', CustomDateEntry(to_frame, width=8))
-        from_frame.grid(row=0, column=0)
-        to_frame.grid(row=0, column=1)
-
-        # Field Filters
-        us_frame = ttk.Frame(opt_frame)
-        sprint_frame = ttk.Frame(opt_frame)
-        user_frame = ttk.Frame(opt_frame)
-
-        us_filter = self.__generate_field_obj(us_frame, 'User Story:', CustomOptionMenu(us_frame, us_select_def, *us_options))
-        sprint_filter = self.__generate_field_obj(sprint_frame, 'Sprint:', CustomOptionMenu(sprint_frame, sprint_select_def, *sprint_options))
-        user_filter = self.__generate_field_obj(user_frame, 'User:', CustomOptionMenu(user_frame, user_select_def, *user_options))
-        us_frame.grid(row=0, column=0, sticky='nsew')
-        sprint_frame.grid(row=0, column=1, sticky='nsew')
-        user_frame.grid(row=0, column=2, sticky='nsew')
-
-        # Buttons
-        apply_filters_btn = ttk.Button(btn_frame, 
-                                      text='Apply Filters', 
-                                      command=lambda: self.__apply_filters(from_date_entry, to_date_entry, us_filter, sprint_filter, user_filter))
-        self.clear_filters_btn = ttk.Button(btn_frame, 
-                                      text='Clear Filters', 
-                                      state='disabled',
-                                      command=lambda: self.__clear_filters(from_date_entry, to_date_entry, us_filter, sprint_filter, user_filter))
-        apply_filters_btn.grid(row=0, column=0, padx=2, sticky='nsew')
-        self.clear_filters_btn.grid(row=0, column=1, padx=2, sticky='nsew')
-
-        filters_lbl.pack(fill='x', pady=(0, 5))
-        date_frame.pack(fill='x', expand=True)
-        opt_frame.pack(pady=2)
-        btn_frame.pack(pady=2)
-        filters_frame.pack()
-        return widget_frame
-        
-    def __build_table_btn_frame(self) -> ttk.Frame:
-        btn_frame = ttk.Frame(self)
-        save_data_btn = ttk.Button(btn_frame, text='Save Current Table', command=lambda: self.__save_table_data())
-        clear_data_btn = ttk.Button(btn_frame, text='Clear All Taiga Data', command=lambda: self.__clear_data())
-        save_data_btn.grid(row=0, column=0, sticky='nsew', padx=2)
-        clear_data_btn.grid(row=0, column=1, sticky='nsew', padx=2)
-        return btn_frame
-    
-    def __build_table(self, df) -> tks.Sheet:
-        formatted_df = self.__dataframe_to_table_format(df)
-        formatted_df.sort_values(by='sprint_start', ascending=True, inplace=True)
-        sheet = tks.Sheet(self, header=list(formatted_df.columns), data=formatted_df.values.tolist())
-        sheet.enable_bindings('all')
-        # sheet.height_and_width(height=300, width=1000)
-
-        if self.col_widths is None:
-            column_widths = []
-            index = 0
-            for column in formatted_df.columns:
-                text_width = sheet.get_column_text_width(index)
-                if column == 'subject':
-                    text_width = 285
-
-                column_widths.append(text_width)
-                index += 1
-
-            self.col_widths = column_widths
-
-        sheet.set_column_widths(self.col_widths)
-        return sheet
-
-    def build_data_display(self, df):
-        self.__destroy_frames()
-        self.__update_sheet_df(df)
-
-        self.filter_panel = self.__build_filter_panel()
-        self.btn_frame = self.__build_table_btn_frame()
-        self.sheet = self.__build_table(self.sheet_master_df)
-
-        self.filter_panel.pack(fill='x', pady=(0, 5))
-        self.btn_frame.pack(fill='x', pady=(0, 5), anchor='e')
-        self.sheet.pack(fill='both', expand=True, pady=(0, 5))
-
-    def change_table(self, df):
-        self.sheet.destroy()
-        self.sheet = self.__build_table(df)
-        self.sheet.pack(fill='both', expand=True)
+        header_frame.pack(fill ='x') 
+        tabControl.pack(expand = 1, fill ="both") 
+        self.data_frame.pack(expand = 1, fill ="both") 

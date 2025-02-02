@@ -400,14 +400,6 @@ class DataController:
                 return 'Success', f'Successfully imported Taiga data by File'
             except Exception as e:
                 return 'Error', f'Failed to import Taiga data by File - {e}'
-            # print(f'Sprints DF Length: {len(sprints_df)}')
-            # print(sprints_df)
-            # print(f'Members DF Length: {len(members_df)}')
-            # print(members_df)
-            # print(f'US DF Length: {len(us_df)}')
-            # print(us_df)
-            # print(f'Tasks DF Length: {len(task_df)}')
-            # print(task_df)
 
     def get_us_df(self) -> pd.DataFrame:
         return self.us_df

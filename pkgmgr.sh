@@ -38,5 +38,5 @@ package() {
         rm -rf ./build
     fi
 
-    pyinstaller --onefile -w main.py -n CapstoneDataAutomationTool
+    pyinstaller --onefile -w main.py -n CapstoneDataAutomationTool 
 }

@@ -1,10 +1,12 @@
 from typing import Type
+import github.PaginatedList
 import pandas as pd
 import numpy as np
 import requests
 import datetime
 import pytz
 import re
+import github
 
 class GitHubParser:
     base_url = "https://api.github.com"
@@ -235,3 +237,14 @@ class GitHubParser:
                 all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset=['id'], keep='last').reset_index(drop=True)
 
         return all_data
+
+# auth = github.Auth.Token()
+# gh = github.Github(auth=auth)
+# user = gh.get_user()
+# github.PaginatedList
+# repos_pages = user.get_repos()
+# count = repos_pages.totalCount
+
+# for i in range(count):
+#     for repo in repos_pages.get_page(i):
+#         print(repo)

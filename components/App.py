@@ -56,24 +56,25 @@ class Application():
         self.root.after(1000,self.refresh)
 
     def tab_change(self, event):
-        self.prev_tab = self.curr_tab
-        self.curr_tab = event.widget.tab('current')['text']
+        # self.prev_tab = self.curr_tab
+        # self.curr_tab = event.widget.tab('current')['text']
         
-        if self.curr_tab == 'Reports':
-            self.reports_tab.update_valid_options()
-        elif self.prev_tab == 'Reports':
-            self.reports_tab.reset_tab()
+        # if self.curr_tab == 'Reports':
+        #     self.reports_tab.update_valid_options()
+        # elif self.prev_tab == 'Reports':
+        #     self.reports_tab.reset_tab()
+        pass
 
     def taiga_data_ready(self) -> bool:
         return self.taiga_tab.taiga_data_ready()
     
-    def get_taiga_data(self) -> pd.DataFrame:
+    def get_taiga_data(self):
         return self.taiga_tab.get_taiga_df()
     
     def gh_data_ready(self) -> bool:
         return self.git_tab.gh_data_ready()
     
-    def get_gh_data(self) -> pd.DataFrame:
+    def get_gh_data(self):
         return self.git_tab.get_gh_df()
     
     def get_taiga_members(self) -> list:
