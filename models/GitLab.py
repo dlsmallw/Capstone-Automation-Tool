@@ -6,7 +6,7 @@ import datetime
 import pytz
 import re
 
-class GitLabParser:
+class GitLabDataServicer:
     base_url = "https://gitlab/api/v4/projects"
 
     project_id = None

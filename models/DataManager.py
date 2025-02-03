@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from typing import Type
 from models.GitCommitParser import GitParsingController
-from models.Taiga import TaigaProjectServicer
+from models.Taiga import TaigaDataServicer
 from models.database.RecordDatabase import RecDB
 import requests
 import threading
@@ -26,7 +26,7 @@ class DataController:
     def __init__(self, db: RecDB):
         ## Class object defaults
         self.db : RecDB = None
-        self.ts : TaigaProjectServicer = None
+        self.ts : TaigaDataServicer = None
         self.gp : GitParsingController = None
 
         ## Taiga-related variables
@@ -82,7 +82,7 @@ class DataController:
     def init_taiga_servicer(self):
         self.load_taiga_projects()
         self.load_saved_taiga_data()
-        return TaigaProjectServicer(self.load_taiga_credentials())
+        return TaigaDataServicer(self.load_taiga_credentials())
     
     def load_saved_taiga_data(self):
         self.update_sprints_df(self.db.table_to_df('sprints'))

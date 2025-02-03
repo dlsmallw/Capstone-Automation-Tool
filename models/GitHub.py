@@ -1,118 +1,60 @@
 from typing import Type
-import github.PaginatedList
+from github import Auth, Github, Repository, Branch, Commit
 import pandas as pd
 import numpy as np
 import requests
 import datetime
 import pytz
 import re
-import github
 
-class GitHubParser:
-    base_url = "https://api.github.com"
+class GitHubDataServicer:
+    def __init__(self, token=None):
+        self.base_url = "https://api.github.com"
+        self.gh : Github  = None
+        self.gh_auth : Auth = None
 
-    token = None
-    repo_owner = None
-    repo = None
+        self.token = None
+        self.token_verified = False
 
-    auth_verified = False
-    repo_verified = False
+        if token and self.set_token(token):
+            self.init_github_obj()
+            
+    def init_github_obj(self):
+        self.gh_auth = Auth.Token(self.token)
+        self.gh = Github(auth=self.gh_auth)
 
-    def __init__(self, token=None, owner=None, repo=None):
-        self.set_gh_token(token)
-        self.set_repo_owner_username(owner)
-        self.set_repo_name(repo)
-
-    def validate_username(self, username):
-        return username is not None and username != ""
-    
-    def validate_token(self, token):
-        return token is not None and token != ''
+    def set_token(self, token):
+        self.token = token
+        return self.validate_auth()
 
     def validate_auth(self):
-        if self.validate_token(self.token):
-            res = self.__make_gh_api_call(f'{self.base_url}/user')
-            if res.status_code >= 200 and res.status_code < 300:
-                self.auth_verified = True
-                return
-            
-        self.auth_verified = False
-        return
+        if self.token:
+            try:
+                res = self._make_gh_api_call(f'{self.base_url}/user')
+                self.token_verified = res.status_code >= 200 and res.status_code < 300
+            except Exception as e:
+                print(e)
+        return self.token_verified
     
     def auth_validated(self):
-        return self.auth_verified
+        return self.token_verified
     
-    def set_gh_token(self, token):
-        if self.validate_token(token):
-            self.token = token
-            self.validate_auth()
-            return True
-        return False
+    def get_repo_list(self):
+        pass
     
-    def get_token(self):
-        return self.token
-
-    def validate_repo_exists(self):
-        owner = self.repo_owner
-        repo = self.repo
-
-        if owner is not None and repo is not None:
-            url = f'{self.base_url}/repos/{owner}/{repo}'
-            header = self.__get_auth_header()
-
-            res = requests.get(url, headers=header)
-
-            if res.status_code >= 200 and res.status_code < 300:
-                self.repo_verified = True
-                return
-        self.repo_verified = False
-        return
+    def _inv_val_format(self, df: Type[pd.DataFrame]):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
     
-    def repo_validated(self) -> bool:
-        return self.repo_verified
-
-    def set_repo_owner_username(self, owner):
-        if self.validate_username(owner):
-            self.repo_owner = owner
-            self.validate_repo_exists()
-            return True
-        return False
-    
-    def get_repo_owner(self):
-        return self.repo_owner
-    
-    def set_repo_name(self, repo):
-        if repo is not None and repo != "":
-            self.repo = repo
-            self.validate_repo_exists()
-            return True
-        return False
-    
-    def get_repo_name(self):
-        return self.repo
-    
-    def __inv_val_to_none(self, df: Type[pd.DataFrame]):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
-
-    def get_tasks_list(self, df: Type[pd.DataFrame]):
-        df_to_use = self.df['task'].copy(deep=True)
-        self.__inv_val_to_none(df_to_use)
-        df_to_use.dropna(inplace=True)
-        df_to_use = df_to_use.drop_duplicates(keep='first').reset_index(drop=True)
-        df_to_use = df_to_use.astype(int)
-        task_list = df_to_use.tolist()
-        return task_list
-    
-    def __get_auth_header(self):
+    def _get_auth_header(self):
         return {
             'Authorization': f'token {self.token}' 
         }
     
-    def __make_gh_api_call(self, url):
-        header = self.__get_auth_header()
+    def _make_gh_api_call(self, url):
+        header = self._get_auth_header()
         return requests.get(url, headers=header)
     
-    def __parse_repo_branches(self) -> dict:
+    def _parse_repo_branches(self) -> dict:
         owner = self.repo_owner
         repo = self.repo
         url = f'{self.base_url}/repos/{owner}/{repo}/branches?per_page=100'
@@ -123,7 +65,7 @@ class GitHubParser:
         repo = self.repo
         url = f'{self.base_url}/repos/{owner}/{repo}/contributors'
 
-        res = self.__make_gh_api_call(url).json()
+        res = self._make_gh_api_call(url).json()
         contrbutor_df = pd.json_normalize(res)['login']
         contributors = contrbutor_df.tolist()
         contributors.append('Unknown')
@@ -150,7 +92,7 @@ class GitHubParser:
         next_url = url
 
         while pagesRemaining:
-            res = self.__make_gh_api_call(next_url)
+            res = self._make_gh_api_call(next_url)
             links = res.links
             data = res.json()
 
@@ -170,7 +112,7 @@ class GitHubParser:
         repo = self.repo
 
         contributors = self.__parse_repo_contributors()
-        branch_dict = self.__parse_repo_branches()
+        branch_dict = self._parse_repo_branches()
         branch_list = list(branch_dict.keys())
 
         all_data = None
@@ -187,7 +129,7 @@ class GitHubParser:
             next_url = url
 
             while pagesRemaining:
-                res = self.__make_gh_api_call(next_url)
+                res = self._make_gh_api_call(next_url)
                 links = res.links
                 data = res.json()
                 pattern = r'task[^a-zA-Z\d\s]?\d+'

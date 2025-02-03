@@ -4,7 +4,7 @@ import numpy as np
 import requests
 import traceback
 
-class TaigaProjectServicer:
+class TaigaDataServicer:
     def __init__(self, username=None, password=None):
         self.base_url = "https://api.taiga.io/api/v1"
         self.username = None
@@ -65,7 +65,8 @@ class TaigaProjectServicer:
     def _api_token_header(self):
         return {
             "Content-Type": "application/json",
-            "Authorization": f'Bearer {self.token}'
+            "Authorization": f'Bearer {self.token}',
+            "x-disable-pagination": 'True'
         }    
         
     def _extract_user_id(self):
@@ -81,18 +82,32 @@ class TaigaProjectServicer:
             res = self._make_get_api_req(url, self._api_token_header())
             if res.status_code == 200:
                 projects_data = []
+                project_ids = []
                 for project in res.json():
                     if project.get("type") == 'project':
                         p_id = project.get("id")
                         p_name = project.get("name")
                         p_owner = project.get("slug").split("-")[0]
-                        p_data = {
-                            'id': p_id,
-                            'project_name': p_name,
-                            'project_owner': p_owner,
-                            'is_selected': 0
-                        }
-                        projects_data.append(p_data)
+                    else:
+                        try:
+                            p_slug = project.get("project_slug")
+                            p_id = project.get("project")
+                            p_owner, p_name = p_slug.split("-")
+                        except Exception as e:
+                            print(e)
+
+                    if p_id and p_name and p_owner:
+                        print(p_id)
+                        if p_id not in project_ids:
+                            print('Not Exists Already')
+                            p_data = {
+                                'id': p_id,
+                                'project_name': p_name,
+                                'project_owner': p_owner,
+                                'is_selected': 0
+                            }
+                            projects_data.append(p_data)
+                            project_ids.append(p_id)
         else:
             print('ELSE')
         return pd.DataFrame(data=projects_data, columns=['id', 'project_name', 'project_owner', 'is_selected'])

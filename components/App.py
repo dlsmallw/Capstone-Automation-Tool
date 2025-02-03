@@ -31,13 +31,13 @@ class Application():
         self.tabControl = ttk.Notebook(self.root)
         self.home_tab = HomeFrame.HomeFrame(self.tabControl)
         self.taiga_tab = TaigaFrame.TaigaFrame(self.tabControl, dc)
-        self.git_tab = GitFrame.GitFrame(self.tabControl, dc)
-        self.reports_tab = ReportsFrame.ReportsFrame(self.tabControl, self, dc)
+        # self.git_tab = GitFrame.GitFrame(self.tabControl, dc)
+        # self.reports_tab = ReportsFrame.ReportsFrame(self.tabControl, self, dc)
 
         self.tabControl.add(self.home_tab, text='Home')
         self.tabControl.add(self.taiga_tab, text='Taiga')
-        self.tabControl.add(self.git_tab, text='Git')
-        self.tabControl.add(self.reports_tab, text='Reports')
+        # self.tabControl.add(self.git_tab, text='Git')
+        # self.tabControl.add(self.reports_tab, text='Reports')
         self.tabControl.pack(expand = 1, fill ="both") 
 
         self.tabControl.bind('<<NotebookTabChanged>>', self.tab_change)

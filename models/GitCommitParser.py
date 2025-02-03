@@ -4,7 +4,7 @@ from typing import Type
 import pandas as pd
 import numpy as np
 
-from models import GitHubParser
+from models.GitHub import GitHubDataServicer
 
 class GitParsingController:
     config_fp = os.path.join(os.getcwd(), 'config.txt')
@@ -20,7 +20,7 @@ class GitParsingController:
 
     def __init__(self, config_parser, gh_token=None, gh_repo=None, gh_owner=None, gh_latest_commit_date=None):
         self.config_parser = config_parser
-        self.gh_parser = GitHubParser.GitHubParser(gh_token, gh_repo, gh_owner)
+        # self.gh_parser = GitHubDataServicer(gh_token)
 
     def load_raw_data(self, raw_df):
         if raw_df is not None:
