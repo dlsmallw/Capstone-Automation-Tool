@@ -97,9 +97,7 @@ class TaigaDataServicer:
                             print(e)
 
                     if p_id and p_name and p_owner:
-                        print(p_id)
                         if p_id not in project_ids:
-                            print('Not Exists Already')
                             p_data = {
                                 'id': p_id,
                                 'project_name': p_name,
@@ -186,7 +184,6 @@ class TaigaDataServicer:
             res = import_data(f'{self.base_url}/projects/{project_id}')
             if res.status_code == 200:
                 raw_members_df = pd.json_normalize(res.json().get('members'))
-                print(raw_members_df)
                 updated_raw_df = raw_members_df[raw_members_df['role_name'] == 'Product Owner']
 
                 headers = ['id', 'username']
