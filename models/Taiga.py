@@ -186,7 +186,8 @@ class TaigaDataServicer:
             res = import_data(f'{self.base_url}/projects/{project_id}')
             if res.status_code == 200:
                 raw_members_df = pd.json_normalize(res.json().get('members'))
-                updated_raw_df = raw_members_df[raw_members_df['role'] == 9585684]
+                print(raw_members_df)
+                updated_raw_df = raw_members_df[raw_members_df['role_name'] == 'Product Owner']
 
                 headers = ['id', 'username']
                 data = []
