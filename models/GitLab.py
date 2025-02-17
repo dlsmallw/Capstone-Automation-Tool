@@ -14,65 +14,63 @@ class GitLabDataServicer:
 
     auth_verified = False
     repo_verified = False
-
-    def __init__(self, token=None, proj_id=None):
-        self.set_token(token)
-        self.set_project_id(proj_id)
-
-    def validate_auth(self):
-        if self.validate_token(self.token):
-            url = f'{self.base_url}'
-            header = self.__get_auth_header()
-            res = requests.get(url, headers=header)
-            if res.status_code >= 200 and res.status_code < 300:
-                self.auth_verified = True
-                return
-        self.auth_verified = False
-        return
-
-    def validate_repo_exists(self):
-        token = self.get_token()
-        project_id = self.get_project_id()
-        if token is not None:
-            url = f'{self.base_url}/{project_id}/repository/tree'
-            header = self.__get_auth_header()
-            res = requests.get(url, headers=header)
-            if res.status_code >= 200 and res.status_code < 300:
-                self.repo_verified = True
-                return
-        self.repo_verified = False
-        return
     
-    def repo_validated(self) -> bool:
-        return self.repo_verified
+    def __init__(self, token=None):
+        self.base_url = "https://gitlab/api/v4/projects"
+        self.token = None
+        
+        self.auth_and_gl_set = False
+
+        if token: 
+            self.set_token(token)
+            
+    def _init_obj(self):
+        pass
+
+    def set_token(self, token) -> bool:
+        self.token = token
+
+        if self.token:
+            try:
+                self._init_obj()
+                self.auth_and_gl_set = True
+            except:
+                self.auth_and_gl_set = False
+        return self.auth_and_gl_set
     
-    def validate_token(self, token):
-        return token is not None and token != ''
-
-    def set_token(self, token):
-        if self.validate_token(token):
-            self.token = token
-            self.validate_auth()
-            return True
-        return False
-
-    def get_token(self):
+    def get_token(self) -> str:
         return self.token
     
-    def set_project_id(self, proj_id):
-        if proj_id is not None and proj_id > 0:
-            self.project_id = proj_id
-            self.validate_repo_exists()
-            return True
-        return False
+    def ready_for_api_calls(self) -> bool:
+        return self.auth_and_gl_set
+    
+    def get_repos(self) -> pd.DataFrame:
+        pass
 
-    def get_project_id(self):
-        return self.project_id
+    def _get_repo_branches(self, repo) -> dict[str:str]:
+        pass
     
-    def __inv_val_to_none(self, df: Type[pd.DataFrame]):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan], [None, None, None, None, None], inplace=True)
+    def get_contributors(self, repo) -> list[str]:
+        pass
     
-    def __get_auth_header(self):
+    def _get_commit_author(self, contributors, commit) -> str | None:
+        pass
+    
+    def _inv_val_format(self, df: Type[pd.DataFrame]):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
+
+    def _format_commit_data(self, df : pd.DataFrame) -> pd.DataFrame:
+        pass
+    
+    def _get_auth_header(self) -> dict[str:str]:
         return {
-            'Authorization': f'Bearer {self.token}' 
+            'Accept': 'application/vnd.github+json',
+            'Authorization': f'Bearer {self.token}',
+            'X-GitHub-Api-Version': '2022-11-28'
         }
+    
+    def _make_api_call(self, header, url) -> requests.Response:
+        return requests.get(url, headers=header)
+    
+    def import_commit_data(self, repo, since=None) -> pd.DataFrame:
+        pass

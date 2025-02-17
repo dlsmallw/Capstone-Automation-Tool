@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, StringVar, messagebox, Tk
+from tkinter import ttk, filedialog, StringVar, messagebox
 import tksheet as tks
 
 import pandas as pd
@@ -12,9 +12,7 @@ from components.CustomComponents import CustomOptionMenu
 class TaigaFrame(ttk.Frame):
     def __init__(self, parent: ttk.Notebook, dc: DataController):
         super().__init__(parent)
-        self.root : Tk = None
-        self.parent_frame = None
-
+        
         self.dc = dc
         self.parent_frame = parent
         self.root = parent.master
@@ -24,22 +22,17 @@ class TaigaFrame(ttk.Frame):
 
         self.config_panel.pack(fill='x', anchor='n', pady=(0, 10))
         self.data_panel.pack(fill='both', expand=True, anchor='n')
-        self.refresh()
 
         if self.dc.taiga_data_ready():
-            self.data_panel.handle_data_to_tables()
+            self.setup_dataframe()
 
     def setup_dataframe(self):
         self.data_panel.handle_data_to_tables()
 
-    def refresh(self):
-        self.root.update()
-        self.root.after(1000, self.refresh)
-
-    def taiga_data_ready(self):
+    def taiga_data_ready(self) -> bool:
         return self.data_panel.taiga_data_ready()
     
-    def get_taiga_data(self):
+    def get_taiga_data(self) -> pd.DataFrame:
         return self.data_panel.get_taiga_data()
     
 class ConfigFrame(ttk.Frame):
@@ -129,7 +122,7 @@ class ConfigFrame(ttk.Frame):
         label.pack(pady=10)
 
         # Entry widget for user input
-        entry = tk.Entry(prompt_window, width=30)
+        entry = ttk.Entry(prompt_window, width=30)
         entry.pack(pady=5)
 
         # Function to handle submission
@@ -186,13 +179,13 @@ class ConfigFrame(ttk.Frame):
             # Username Label and Entry
             username_label = ttk.Label(link_window, text="Username:")
             username_label.pack(pady=5)
-            username_entry = tk.Entry(link_window, width=30)
+            username_entry = ttk.Entry(link_window, width=30)
             username_entry.pack(pady=5)
 
             # Password Label and Entry
             password_label = ttk.Label(link_window, text="Password:")
             password_label.pack(pady=5)
-            password_entry = tk.Entry(link_window, show="*", width=30)
+            password_entry = ttk.Entry(link_window, show="*", width=30)
             password_entry.pack(pady=5)
 
             if curr_uname is not None:
@@ -295,7 +288,7 @@ class ConfigFrame(ttk.Frame):
             if result == 'Success':
                 self.is_linked = True
                 auth_not_linked_ui_config(username)
-                project = self.dc.get_linked_project()[1]
+                project = self.dc.get_linked_taiga_project()[1]
                 projects = self.dc.get_available_projects()
                 if project is not None and project in projects:
                     auth_and_linked_ui_config(project)
@@ -537,7 +530,9 @@ class ConfigFrame(ttk.Frame):
         ##====================================================================================================================================================
 
         widget_frame = ttk.Frame(parent)
-        file_sel_lbl = ttk.Label(widget_frame, text=f'{' ' * 4}Import Using CSV Files{' ' * 4}', font=('Arial', 15), borderwidth=2, relief='ridge')
+        file_sel_lbl_frame = ttk.Frame(widget_frame, borderwidth=2, relief='ridge')
+        file_sel_lbl = ttk.Label(file_sel_lbl_frame, text=f'{' ' * 4}Import Using CSV Files{' ' * 4}', font=('Arial', 15))
+        file_sel_lbl.pack()
         
         fp_sel_frame = ttk.Frame(widget_frame)
 
@@ -562,7 +557,7 @@ class ConfigFrame(ttk.Frame):
         self.import_data_from_file_btn = ttk.Button(btn_frame, text='Import from Files', state='disabled', command=import_by_file)
         self.import_data_from_file_btn.grid(row=0, column=0, padx=2, sticky='nsew')
 
-        file_sel_lbl.pack(fill='x', pady=(0, 8))
+        file_sel_lbl_frame.pack(fill='x', pady=(0, 8))
         fp_sel_frame.pack(pady=(0, 4))
         btn_frame.pack()
 
@@ -594,7 +589,7 @@ class DataFrame(ttk.Frame):
         return us_data_ready and task_data_ready
     
     def get_taiga_data(self):
-        return self.curr_us_df, self.curr_tasks_df
+        return self.curr_us_df.copy(deep=True), self.curr_tasks_df.copy(deep=True)
 
     def handle_data_to_tables(self):
         self.import_data_to_tables()

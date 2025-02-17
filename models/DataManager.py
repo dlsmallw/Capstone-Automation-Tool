@@ -5,12 +5,11 @@ import openpyxl as opyxl
 import pandas as pd
 import numpy as np
 from typing import Type
-from models.GitCommitParser import GitParsingController
 from models.Taiga import TaigaDataServicer
+from models.GitServicerInterface import GitServicer
 from models.database.RecordDatabase import RecDB
 import requests
-import threading
-import time
+import http.client as hc
 
 TAIGA = 'Taiga'
 GITHUB = 'GitHub'
@@ -26,8 +25,10 @@ class DataController:
     def __init__(self, db: RecDB):
         ## Class object defaults
         self.db : RecDB = None
+
+        ## Data Servicers
         self.ts : TaigaDataServicer = None
-        self.gp : GitParsingController = None
+        self.gs : GitServicer = None
 
         ## Taiga-related variables
         #### Projects
@@ -47,21 +48,255 @@ class DataController:
         #### Status Vars
         self.taiga_data_available = False
 
-        ## GitHub-related variables
-        ## TODO
-        ## GitLab-related variables
-        ## TODO
+        ## Git-related variables
+        self.git_accts : dict = dict()
+        self.repos : pd.DataFrame = None
+        self.contributors : list[str] = None
+        self.commits_df : pd.DataFrame = None
+        
+        self.commit_data_available = False
 
         ## Instance initializations and data loading
         self.db = db
         self.ts = self.init_taiga_servicer()
-
-        self.__load_config()
+        self.gs = self.init_git_servicer()
 
     ## Initialization Functions
     ##=============================================================================
 
-    def get_linked_project(self):
+    def init_taiga_servicer(self) -> TaigaDataServicer | None:
+        def load_taiga_projects():
+            projects = self.db.table_to_df('taiga_projects')
+            if projects is not None and len(projects) > 0:
+                self.taiga_projects_df = projects
+                row = projects.loc[projects['is_selected'] == 1]
+
+                if len(row) > 0:
+                    self.set_linked_taiga_project(row['id'], row['project_name'], row['project_owner'])
+
+        def load_saved_taiga_data():
+            self.update_sprints_df(self.db.table_to_df('sprints'))
+            self.update_members_df(self.db.table_to_df('members'))
+            self.update_us_df(self.db.table_to_df('userstories'))
+            self.update_tasks_df(self.db.table_to_df('tasks'))
+
+        load_taiga_projects()
+        load_saved_taiga_data()
+        return TaigaDataServicer(self.load_taiga_credentials())
+    
+    def init_git_servicer(self) -> GitServicer:
+        def load_accts():
+            accts = self.db.table_to_df('sites')
+            repo_accts = accts[accts['nickname'] != 'Taiga']
+            for index, row in repo_accts.iterrows():
+                user, token = self.db.decrypt([row['username'], row['site_token']])
+                repo_accts.iloc[index - 1]['username'] = user
+                repo_accts.iloc[index - 1]['site_token'] = token
+            
+            if repo_accts is not None and len(repo_accts) > 0:
+                self.git_accts = dict()
+
+                for index, row in repo_accts.iterrows():
+                    site = row['site_name']
+                    nickname = row['nickname']
+                    user = row['username']
+                    token = row['site_token']
+
+                    res, msg = self.validate_token(site, token)
+
+                    if res == 'Success':
+                        details = "Ready to make API calls"
+                    else:
+                        details = msg
+
+                    self.git_accts[nickname] = {
+                        'site': site,
+                        'user': user,
+                        'token': token,
+                        'details': details
+                    }
+        
+        def load_repos():
+            repos = self.db.table_to_df('repos')
+            if repos is not None and len(repos) > 0:
+                self.repos = repos
+        
+        def load_commit_data():
+            self.update_commit_df(self.db.table_to_df('commits'))
+
+        gs = GitServicer()
+        load_repos()
+        load_accts()
+        load_commit_data()
+        return gs
+    
+
+    ## Util Functions
+    ##=============================================================================
+
+    def validate_token(self, site, token):
+        def gh_request(token):
+            base_url = "https://api.github.com/user"
+            header = {
+                'Accept': 'application/vnd.github+json',
+                'Authorization': f'Bearer {token}',
+                'X-GitHub-Api-Version': '2022-11-28'
+            }
+
+            return base_url, header
+        
+        def gl_request(token):
+            base_url = None
+            header = None
+
+            return base_url, header
+
+        if site == GITHUB:
+            url, headers = gh_request(token)
+        else:
+            url, headers = gl_request(token)
+
+        try:
+            res = requests.get(url=url, headers=headers)
+            sc = res.status_code
+
+            if sc >= 200 and sc <= 200:
+                return 'Success', res.json()['login']
+            else:
+                return 'Error', f'{sc} - [{hc.responses[sc]}]'
+        except Exception as e:
+            return 'Error', f'Exception - {e}'
+
+    def get_site_credentials_from_db(self, site_name):
+        return self.db.decrypt(tuple(self.db.select('sites', ['username', 'user_pwd', 'site_token'], {'site_name': site_name})[0]))
+    
+    def update_user_credentials(self, site_name, username=None, pwd=None, token=None):
+        return self.db.update('sites', dict(zip(['username', 'user_pwd', 'site_token'], self.db.encrypt([username, pwd, token]))), {'site_name': site_name})
+    
+    def check_if_nickname_exists(self, nickname):
+        result = self.db.select('sites', conditions={'nickname': nickname})
+        return len(result) > 0
+    
+    def check_if_token_exists(self, token):
+        for acct in self.git_accts.keys():
+            if token == self.git_accts[acct]['token']:
+                return True
+        return False
+    
+    def update_git_acct(self, site, nickname, token):
+        res, msg = self.validate_token(site, token)
+        if res == 'Error':
+            return res, msg
+        
+        if self.check_if_token_exists(token):
+            return 'Error', 'Account associated with this token already exists'
+        
+        username = msg
+        enc_uname, enc_token = self.db.encrypt([msg, token])
+        data = {
+            'site_name': site,
+            'username': enc_uname,
+            'nickname': nickname,
+            'site_token': enc_token
+        }
+
+        cond = {'nickname': nickname}
+        self.db.insert('sites', data, cond)
+
+        if nickname in self.git_accts.keys():
+            self.git_accts[nickname]['user'] = username
+            self.git_accts[nickname]['token'] = token
+            self.git_accts[nickname]['details'] = "Ready to make API calls"
+        else:
+            self.git_accts[nickname] = {
+                'site': site,
+                'user': username,
+                'token': token,
+                'details': "Ready to make API calls"
+            }
+
+        return res, msg
+    
+    def add_git_acct(self, site, nickname, token):
+        res, msg = self.update_git_acct(site, nickname, token)
+        if res == 'Success':
+            self.gs.init_git_servicer(site, nickname, token)
+        return res, msg
+    
+    def remove_git_acct(self, nickname):
+        self.gs.remove_servicer(nickname)
+        self.git_accts.pop(nickname)
+        self.db.delete('sites', conditions={'nickname': nickname})
+        self.db.delete('repos', conditions={'site_nickname': nickname} )
+        return 
+    
+    def get_git_accts(self):
+        accts = []
+        if self.git_accts is not None and len(self.git_accts) > 0:
+            for nname in self.git_accts:
+                site = self.git_accts[nname]['site']
+                user = self.git_accts[nname]['user']
+                details = self.git_accts[nname]['details']
+                accts.append([site, nname, user, details])
+        return accts
+    
+    def get_acct_repos(self, nickname):
+        self.pull_repos(nickname)
+        return self.get_avail_repos()
+    
+    def link_repo(self, repo):
+        repos = self.repos.copy(deep=True)
+        repos.loc[repos['repo_name'] == repo, 'is_linked'] = 1
+        self.update_repos(repos, cols=['is_linked'])
+
+    def unlink_repo(self, repo):
+        repos = self.repos.copy(deep=True)
+        repos.loc[repos['repo_name'] == repo, 'is_linked'] = 0
+        self.update_repos(repos, cols=['is_linked'])
+
+    def repos_available(self) -> bool:
+        return self.repos is not None and len(self.repos) > 0
+    
+    def repos_linked(self) -> bool:
+        return len(self.get_linked_repos()) > 0
+    
+    def api_call_ready(self) -> bool:
+        if self.repos_linked:
+            for acct in self.git_accts.keys():
+                if self.git_accts[acct]['details'] == "Ready to make API calls":
+                    return True
+        return False
+        
+    
+    #### Taiga
+    ####===========================================================================
+
+    def get_us_df(self) -> pd.DataFrame:
+        return self.us_df
+    
+    def get_task_df(self) -> pd.DataFrame:
+        return self.tasks_df
+    
+    def get_members_df(self) -> pd.DataFrame:
+        return self.members_df
+    
+    def get_sprints_df(self) -> pd.DataFrame:
+        return self.sprints_df
+
+    def get_num_projects(self):
+        if self.taiga_projects_df is not None and not self.taiga_projects_df.empty:
+            return len(self.taiga_projects_df)
+        else:
+            return 0
+        
+    def get_available_projects(self):
+        projects = []
+        
+        for index, row in self.taiga_projects_df.iterrows():
+            projects.append(row['project_name'])
+        return projects
+    
+    def get_linked_taiga_project(self):
         return self.sel_pid, self.sel_project_name, self.sel_project_owner
 
     def set_linked_taiga_project(self, pid, name, owner):
@@ -71,75 +306,55 @@ class DataController:
             self.sel_project_owner = owner
             self.project_selected = True
 
-    def load_taiga_projects(self):
-        projects = self.db.select('taiga_projects')
-        if len(projects) > 0:
-            self.taiga_projects_df = pd.DataFrame(data=projects, columns=['id', 'project_name', 'project_owner', 'is_selected'])
-            result = self.db.select('taiga_projects', ['id', 'project_name', 'project_owner'], {'is_selected': 1})
-            if result and len(result) > 0:
-                self.set_linked_taiga_project(result[0][0], result[0][1], result[0][2])
+    # Function to authenticate with Taiga API
+    def authenticate_with_taiga(self, username, password):
+        if not username or not password:
+            return "Error", "Please enter both username and password."
+            
+        url = "https://api.taiga.io/api/v1/auth"  # Change this to your Taiga API URL if self-hosted
+        data = {
+            "type": "normal",
+            "username": username,
+            "password": password
+        }
 
-    def init_taiga_servicer(self):
-        self.load_taiga_projects()
-        self.load_saved_taiga_data()
-        return TaigaDataServicer(self.load_taiga_credentials())
-    
-    def load_saved_taiga_data(self):
-        self.update_sprints_df(self.db.table_to_df('sprints'))
-        self.update_members_df(self.db.table_to_df('members'))
-        self.update_us_df(self.db.table_to_df('userstories'))
-        self.update_tasks_df(self.db.table_to_df('tasks'))
+        try:
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                auth_token = response.json().get("auth_token")
+                self.ts.update_user_credentials(username, password, auth_token)
+                self.update_user_credentials('Taiga', username, password, auth_token)
 
-    def clear_taiga_data(self):
-        tables = ['members', 'sprints', 'userstories', 'tasks']
-        for name in tables:
-            self.db.clear_table(name)
+                return "Success", f"Login successful! Token: {auth_token}"
+            else:
+                return "Error", f"Login failed: {response.json().get('non_field_errors', 'Unknown error')}"
+        except Exception as e:
+            return "Error", f"An error occurred: {e}"
 
-        self.sprints_df = None
-        self.members_df = None
-        self.us_df = None
-        self.tasks_df = None
-        self.taiga_data_available = False
+    def select_taiga_project(self, project):
+        sel_row = self.taiga_projects_df.loc[self.taiga_projects_df['project_name'] == project]
+        selected_exists = not sel_row.empty
+        curr_sel_exists = not self.taiga_projects_df.loc[self.taiga_projects_df['is_selected'] == 1].empty
 
-    def clear_taiga_link(self):
-        self.clear_taiga_data()
-        self.db.clear_table('taiga_projects')
-        self.update_taiga_credentials()
-        self.update_taiga_csv_urls()
-        self.ts.clear_linked_data()
+        if selected_exists:
+            if curr_sel_exists:
+                self.taiga_projects_df.loc[self.taiga_projects_df['is_selected'] == 1, 'is_selected'] = 0 
 
-        self.taiga_projects_df = None
-        self.sel_pid = None
-        self.sel_project_name = None
-        self.sel_project_owner = None
-        self.project_selected = False
+            self.taiga_projects_df.loc[self.taiga_projects_df['project_name'] == project, 'is_selected'] = 1
+            self.db.df_to_table('taiga_projects', self.taiga_projects_df)
+            self.set_linked_taiga_project(sel_row['id'].iloc[0], sel_row['project_name'].iloc[0], sel_row['project_owner'].iloc[0])
+            return "Success", f"Successfully linked project '{project}'"
+        else:
+            return "ERROR", f"No project by name '{project}' exists"
 
-    def init_git_servicer(self):
-        pass
+    def taiga_data_ready(self):
+        return self.taiga_data_available
 
-    def get_site_credentials_from_db(self, site_name):
-        return self.db.decrypt(tuple(self.db.select('sites', ['username', 'user_pwd', 'site_token'], {'site_name': site_name})[0]))
-    
     def load_taiga_credentials(self):
         return self.get_site_credentials_from_db(TAIGA)[0:2]
     
-    def load_gh_credential(self):
-        return self.get_site_credentials_from_db(GITHUB)[-1]
-    
-    def load_gl_credential(self):
-        return self.get_site_credentials_from_db(GITLAB)[-1]
-    
     def get_taiga_credentials(self):
         return self.ts.get_credentials()
-
-    def get_gh_credentials(self):
-        pass
-
-    def get_gl_credentials(self):
-        pass
-    
-    def update_user_credentials(self, site_name, username=None, pwd=None, token=None):
-        return self.db.update('sites', dict(zip(['username', 'user_pwd', 'site_token'], self.db.encrypt([username, pwd, token]))), {'site_name': site_name})
     
     def update_taiga_credentials(self, uname=None, pwd=None):
         is_success = self.update_user_credentials(TAIGA, username=uname, pwd=pwd)
@@ -165,19 +380,74 @@ class DataController:
             
         return us_url, task_url
     
-    def update_gh_credentials(self, token=None):
-        is_success = self.update_user_credentials(GITHUB, token=token)
-        return is_success
-    
-    def update_gl_credentials(self, token=None):
-        is_success = self.update_user_credentials(GITLAB, token=token)
-        return is_success
+    def clear_taiga_data(self):
+        tables = ['members', 'sprints', 'userstories', 'tasks']
+        for name in tables:
+            self.db.clear_table(name)
 
-    ## Util Functions
+        self.sprints_df = self.members_df = self.us_df \
+            = self.tasks_df = None
+        self.taiga_data_available = False
+
+    def clear_taiga_link(self):
+        self.clear_taiga_data()
+        self.db.clear_table('taiga_projects')
+        self.update_taiga_credentials()
+        self.update_taiga_csv_urls()
+        self.ts.clear_linked_data()
+
+        self.taiga_projects_df = self.sel_pid = self.sel_project_name \
+            = self.sel_project_owner = None
+        self.project_selected = False
+    
+    #### Git
+    ####===========================================================================
+
+    def commit_data_ready(self) -> bool:
+        return self.commits_df is not None and len(self.commits_df) > 0
+    
+    def pull_all_repos(self):
+        for acct in self.git_accts.keys():
+            self.pull_repos(acct)
+    
+    def pull_repos(self, nickname):
+        self.update_repos(self.gs.get_repos(nickname))
+
+    def get_avail_repos(self):
+        repos = []
+        if self.repos is not None:
+            repos_df = self.repos.loc[self.repos['is_linked'] == 0]
+            for index, row in repos_df.iterrows():
+                repos.append([row['site_nickname'], row['repo_name']])
+        return repos
+    
+    def get_linked_repos(self):
+        linked = []
+        if self.repos is not None:
+            linked_df = self.repos.loc[self.repos['is_linked'] == 1]
+            for index, row in linked_df.iterrows():
+                linked.append([row['site_nickname'], row['repo_name']])
+        return linked
+    
+    def ready_for_api_calls(self, nickname):
+        return self.gs.ready_for_api_calls(nickname)
+    
+    def pull_contributors(self):
+        contributors = []
+        for nickname, repo_name in self.get_linked_repos():
+            contributors += self.gs.get_contributors(nickname, repo_name)
+
+        if len(contributors) > 0:
+            self.contributors = contributors
+
+    def get_contributors(self):
+        return self.contributors
+    
+    ## Data Manipulation
     ##=============================================================================
 
-    def taiga_data_ready(self):
-        return self.taiga_data_available
+    def _inv_val_format(self, df: pd.DataFrame):
+        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
 
     def get_cell_val_from_df(self, df : pd.DataFrame, desired_field, cond_field, cond_val):
         try:
@@ -215,36 +485,15 @@ class DataController:
 
             # print(f'{exc_type}: {exc_cause}')
             return curr_df
-
-    # Function to authenticate with Taiga API
-    def authenticate_with_taiga(self, username, password):
-        if not username or not password:
-            return "Error", "Please enter both username and password."
-            
-        url = "https://api.taiga.io/api/v1/auth"  # Change this to your Taiga API URL if self-hosted
-        data = {
-            "type": "normal",
-            "username": username,
-            "password": password
-        }
-
-        try:
-            response = requests.post(url, json=data)
-            if response.status_code == 200:
-                auth_token = response.json().get("auth_token")
-                self.ts.update_user_credentials(username, password, auth_token)
-                self.update_user_credentials('Taiga', username, password, auth_token)
-
-                return "Success", f"Login successful! Token: {auth_token}"
-            else:
-                return "Error", f"Login failed: {response.json().get('non_field_errors', 'Unknown error')}"
-        except Exception as e:
-            return "Error", f"An error occurred: {e}"
-
+        
+    #### Taiga
+    ####===========================================================================
+    
     def update_projects_df(self, new_df):
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
-            df['id'] = df['id'].astype(pd.Int64Dtype())
             self._inv_val_format(df)
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            
             df.dropna(inplace=True, how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
             df.sort_values(by='id', ascending=True, inplace=True)
@@ -255,56 +504,6 @@ class DataController:
             self.db.df_to_table('taiga_projects', self.taiga_projects_df)
             self.taiga_projects_df = format_df(self.db.table_to_df('taiga_projects'))
 
-    def pull_taiga_projects(self):
-        projects = self.ts.get_watched_projects()
-        if projects is not None and not projects.empty:
-             self.update_projects_df(projects)
-        
-    def wait_for_projects(self):
-        self.pull_taiga_projects()
-        self.db.df_to_table('taiga_projects', self.taiga_projects_df)
-        return True
-    
-    def get_num_projects(self):
-        if self.taiga_projects_df is not None and not self.taiga_projects_df.empty:
-            return len(self.taiga_projects_df)
-        else:
-            return 0
-        
-    def get_available_projects(self):
-        projects = []
-        
-        for index, row in self.taiga_projects_df.iterrows():
-            projects.append(row['project_name'])
-        return projects
-    
-    def select_taiga_project(self, project):
-        sel_row = self.taiga_projects_df.loc[self.taiga_projects_df['project_name'] == project]
-        selected_exists = not sel_row.empty
-        curr_sel_exists = not self.taiga_projects_df.loc[self.taiga_projects_df['is_selected'] == 1].empty
-
-        if selected_exists:
-            if curr_sel_exists:
-                self.taiga_projects_df.loc[self.taiga_projects_df['is_selected'] == 1, 'is_selected'] = 0 
-
-            self.taiga_projects_df.loc[self.taiga_projects_df['project_name'] == project, 'is_selected'] = 1
-            self.db.df_to_table('taiga_projects', self.taiga_projects_df)
-            self.set_linked_taiga_project(sel_row['id'].iloc[0], sel_row['project_name'].iloc[0], sel_row['project_owner'].iloc[0])
-            return "Success", f"Successfully linked project '{project}'"
-        else:
-            return "ERROR", f"No project by name '{project}' exists"
-        
-    
-
-    ## Taiga Data Importing
-    ##=============================================================================
-
-    def _inv_val_format(self, df: pd.DataFrame):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
-
-    def get_us_num_by_id(self, us_id):
-        return self.get_cell_val_from_df(self.us_df, 'us_num', 'id', us_id)
-
     def update_sprints_df(self, new_df: pd.DataFrame):
         def to_table_format(df: pd.DataFrame) -> pd.DataFrame:
             df['sprint_start'] = pd.to_datetime(df['sprint_start']).dt.strftime('%m/%d/%Y')
@@ -312,10 +511,11 @@ class DataController:
             return df
 
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
             df['sprint_start'] = pd.to_datetime(df['sprint_start'])
             df['sprint_end'] = pd.to_datetime(df['sprint_end'])
-            self._inv_val_format(df)
+            
             df.dropna(inplace=True, how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
             df.sort_values(by='sprint_start', ascending=True, inplace=True)
@@ -329,8 +529,9 @@ class DataController:
 
     def update_members_df(self, new_df: pd.DataFrame):
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
-            df['id'] = df['id'].astype(pd.Int64Dtype())
             self._inv_val_format(df)
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            
             df.dropna(inplace=True, how='all')
             df = df.drop_duplicates(subset=['username'], keep='first').reset_index(drop=True)
             df.sort_values(by='id', ascending=True, inplace=True)
@@ -343,13 +544,13 @@ class DataController:
     
     def update_us_df(self, new_df: pd.DataFrame, cols=None):
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
             df['us_num'] = df['us_num'].astype(pd.Int64Dtype())
             df['points'] = df['points'].astype(pd.Int64Dtype())
             df['is_complete'] = df['is_complete'].astype(pd.BooleanDtype())
             df['points'].replace(pd.NA, 0, inplace=True)
             
-            self._inv_val_format(df)
             df.dropna(inplace=True, how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
             df.sort_values(by=['sprint', 'us_num'], ascending=True, na_position='last', inplace=True)
@@ -383,7 +584,6 @@ class DataController:
 
         self.taiga_data_available = self.us_df is not None and len(self.us_df) > 0 and self.tasks_df is not None and len(self.tasks_df) > 0
 
-
     def __format_and_centralize_taiga_data(self):
         sprints_df = self.sprints_df
         members_df = self.members_df
@@ -412,6 +612,26 @@ class DataController:
             data_row = [sprint, sprint_start, sprint_end, user_story, points, task, assigned, coding, subject]
             all_data[index] = data_row
 
+    #### Git
+    ####===========================================================================
+    
+    
+    
+
+    ## Data Importing
+    ##=============================================================================
+    #### Taiga
+    ####===========================================================================
+
+    def pull_taiga_projects(self):
+        projects = self.ts.get_watched_projects()
+        if projects is not None and not projects.empty:
+             self.update_projects_df(projects)
+
+    def wait_for_projects(self):
+        self.pull_taiga_projects()
+        return True
+    
     def process_taiga_data(self, sprint_df, member_df, us_df, tasks_df):
         self.update_sprints_df(sprint_df)
         self.update_members_df(member_df)
@@ -444,146 +664,55 @@ class DataController:
                 return 'Success', f'Successfully imported Taiga data by File'
             except Exception as e:
                 return 'Error', f'Failed to import Taiga data by File - {e}'
-
-    def get_us_df(self) -> pd.DataFrame:
-        return self.us_df
-    
-    def get_task_df(self) -> pd.DataFrame:
-        return self.tasks_df
-    
-    def get_members_df(self) -> pd.DataFrame:
-        return self.members_df
-    
-    def get_sprints_df(self) -> pd.DataFrame:
-        return self.sprints_df
-
-    ## Config Management
-    ##=============================================================================
-
-    def __conv_inv_val_to_none(self, val):
-        invalid_values = ['', 'None', 'none', 'NaN', 'nan', np.nan, None]
-
-        if val in invalid_values:
-            return None
-        return val
-
-    def __load_gp_config(self):
-        config = self.config_parser
-
-        if config.has_section('github-config'):
-            gh_token = config.get('github-config', 'gh_token')
-            repo_owner = config.get('github-config', 'gh_repo_owner')
-            repo_name = config.get('github-config', 'gh_repo_name')
-
-            self.gp = GitParsingController(config, gh_token, repo_owner, repo_name)
-        else:
-            self.__build_gp_section()
-
-    def __load_taiga_config(self):
-        config = self.config_parser
-
-        if config.has_section('taiga-config'):
-            self.us_report_url = config.get('taiga-config', 'us_report_api_url')
-            self.task_report_url = config.get('taiga-config', 'task_report_api_url')
-        else:
-            self.__build_taiga_section()
-
-    def __load_config(self):
-        self.config_parser = configparser.RawConfigParser()
-
-        if not os.path.exists(self.config_fp):
-            open(self.config_fp, 'w').close()
-            self.__build_config_file()
             
-        self.config_parser.read(self.config_fp)         
-        self.__load_gp_config()
-        self.__load_taiga_config()
+    #### Git
+    ####===========================================================================
 
-    def __get_config_opt_val(self, section, opt):
-        config = self.config_parser
-        return config.get(section, opt, fallback=None)
+    def update_latest_commit_date(self, repo, date):
+        self.gh_repos.loc[self.repos['repo_name'] == repo, 'last_commit_dt'] = date
+        self.update_repos(self.gh_repos, cols=['last_commit_dt'])
 
-    def __build_gp_section(self):
-        config = self.config_parser
+    def update_commit_df(self, new_df : pd.DataFrame):
+        def to_table_format(df) -> pd.DataFrame:
+            df['utc_datetime'] = pd.to_datetime(df['utc_datetime']).dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+            return df
 
-        config.add_section('github-config')
-        self.__update_gh_config_opt('gh_token', None)
-        self.__update_gh_config_opt('gh_repo_owner', None)
-        self.__update_gh_config_opt('gh_repo_name', None)
-        self.__update_gh_config_opt('gh_latest_commit_date', None)
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            self._inv_val_format(df)
+            df['id'] = df['id'].astype(pd.Int64Dtype())
+            df['task_num'] = df['task_num'].astype(pd.Int64Dtype())
+            df['utc_datetime'] = pd.to_datetime(df['utc_datetime'])
 
-        config.add_section('gitlab-config')
-        self.__update_gl_config_opt('gl_token', None)
-        self.__update_gl_config_opt('gl_project_id', None)
-        self.__update_gl_config_opt('gl_latest_commit_date', None)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+            df.sort_values(by='utc_datetime', ascending=True, inplace=True)
 
-    def __build_taiga_section(self):
-        config = self.config_parser
-        config.add_section('taiga-config')
-        self.__update_taiga_config_opt('us_report_api_url', None)
-        self.__update_taiga_config_opt('task_report_api_url', None)
-        self.__update_taiga_config_opt('taiga_project_url', None)
+            latest_commit_date = df['utc_datetime'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+            repository = df.loc[0, 'repo_name']
+            self.update_latest_commit_date(repository, latest_commit_date)
+            return df
 
-    def __build_config_file(self):
-        self.__build_taiga_section()
-        self.__build_gp_section()
+        if new_df is not None and len(new_df) > 0:
+            self.commits_df = self.update_df(self.commits_df, format_df(new_df))
+            self.db.df_to_table('commits', to_table_format(self.commits_df))
+            self.commits_df = format_df(self.db.table_to_df('commits'))
+        self.commit_data_available = self.commits_df is not None and len(self.commits_df) > 0
 
-    def __update_gh_config_opt(self, option, value):
-        self.__update_option_in_config('github-config', option, value)
+    def update_repos(self, new_df: pd.DataFrame, cols=['repo_name', 'owner_name']):
+        def format_df(df: pd.DataFrame) -> pd.DataFrame:
+            self._inv_val_format(df)
+            df['id'] = df['id'].astype(pd.Int64Dtype())
 
-    def __update_gl_config_opt(self, option, value):
-        self.__update_option_in_config('gitlab-config', option, value)
+            df.dropna(inplace=True, how='all')
+            df = df.drop_duplicates(subset=['id', 'site_nickname'], keep='first').reset_index(drop=True)
+            df.sort_values(by=['site_nickname'], ascending=True, inplace=True)
+            return df
 
-    def __update_taiga_config_opt(self, option, value):
-        self.__update_option_in_config('taiga-config', option, value)
-
-    def __update_option_in_config(self, section, option, value):
-        config = self.config_parser
-        config.set(section, option, value)
-        with open(self.config_fp, 'w') as configfile:
-            config.write(configfile)
-            configfile.close()
-
-    def clear_config(self):
-        self.__update_taiga_config_opt('us_report_api_url', None)
-        self.__update_taiga_config_opt('task_report_api_url', None)
-
-        self.__update_gh_config_opt('gh_token', None)
-        self.__update_gh_config_opt('gh_repo_owner', None)
-        self.__update_gh_config_opt('gh_repo_name', None)
-        self.__update_gh_config_opt('gh_latest_commit_date', None)
-
-        self.__update_gl_config_opt('gl_token', None)
-        self.__update_gl_config_opt('gl_project_id', None)
-        self.__update_gl_config_opt('gl_latest_commit_date', None)
-
-    ## GH/Taiga Raw Data saving/loading
-    ##=============================================================================
-
-    def __load_raw_data(self):
-        self.tp.load_raw_data(self.__load_from_csv('./raw_data/raw_taiga_master_data.csv'), 
-                              self.__load_from_csv('./raw_data/raw_taiga_us_data.csv'), 
-                              self.__load_from_csv('./raw_data/raw_taiga_task_data.csv'))
-
-        self.gp.load_raw_data(self.__load_from_csv('./raw_data/raw_git_master_data.csv'))
-
-    def store_raw_taiga_data(self):
-        raw_master_df = self.tp.get_master_df()
-        raw_us_df = self.tp.get_raw_us_data()
-        raw_task_df = self.tp.get_raw_task_data()
-
-        if raw_master_df is not None:
-            self.write_to_csv('./raw_data/raw_taiga_master_data.csv', raw_master_df)
-
-        if raw_us_df is not None:
-            self.write_to_csv('./raw_data/raw_taiga_us_data.csv', raw_us_df)
-
-        if raw_task_df is not None:
-            self.write_to_csv('./raw_data/raw_taiga_task_data.csv', raw_task_df)
-
-    def store_raw_git_data(self, df):
-        self.write_to_csv('./raw_data/raw_git_master_data.csv', df)
-
+        if new_df is not None and len(new_df) > 0:
+            self.repos = self.update_df(self.repos, format_df(new_df), cols=cols)
+            self.db.df_to_table('repos', self.repos)
+            self.repos = format_df(self.db.table_to_df('repos'))
+        
     ## Data File reading/writing
     ##=============================================================================
 
@@ -663,15 +792,7 @@ class DataController:
             self.__update_gh_config_opt('gh_username', username)
             self.__update_gh_config_opt('gh_token', token)
     
-    def set_gh_token(self, token):
-        success = self.gp.set_gh_token(token)
-        if success:
-            self.__update_gh_config_opt('gh_token', token)
-            self.gh_auth_verified = self.gp.gh_auth_validated()
-        return success
     
-    def get_gh_token(self):
-        return self.gp.get_gh_token()
 
     def set_gh_owner(self, owner):
         success = self.gp.set_gh_repo_owner(owner)
@@ -693,20 +814,7 @@ class DataController:
     def get_gh_repo_name(self):
         return self.gp.get_gh_repo_name()
     
-    ## Taiga Controller Management
-    ##=============================================================================
-
-    def set_taiga_us_api_url(self, url):
-        self.__update_taiga_config_opt('us_report_api_url', url)
-
-    def get_taiga_us_csv_url(self):
-        return self.us_report_url
-
-    def set_taiga_task_api_url(self, url):
-        self.__update_taiga_config_opt('task_report_api_url', url)
-
-    def get_taiga_task_csv_url(self):
-        return self.task_report_url
+    
 
     ## API calling
     ##=============================================================================
@@ -723,17 +831,7 @@ class DataController:
     ## Data retrieval/setting
     ##=============================================================================
 
-    def get_members(self) -> list:
-        return self.tp.get_members()
     
-    def get_sprints(self) -> list:
-        return self.tp.get_sprints()
-    
-    def get_user_stories(self) -> list:
-        return self.tp.get_user_stories()
-
-    def get_taiga_master_df(self):
-        return self.tp.get_master_df()
     
     def get_git_master_df(self) -> pd.DataFrame:
         return self.gp.get_current_commit_data()
@@ -747,17 +845,8 @@ class DataController:
     def set_git_master_df(self, df):
         self.gp.set_commit_data(df)
     
-    def set_taiga_master_df(self, df):
-        self.tp.set_master_df(df)
-    
     def git_data_ready(self):
         return self.gp.data_is_ready()
-    
-    def get_taiga_project_url(self):
-        return self.__get_config_opt_val('taiga-config', 'taiga_project_url')
-    
-    def set_taiga_project_url(self, project_url):
-        self.__update_taiga_config_opt('taiga_project_url', project_url)
 
     def check_url_exists(self, url):
         try:

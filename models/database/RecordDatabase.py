@@ -3,7 +3,6 @@ import numpy as np
 import pandas as pd
 from urllib.request import pathname2url
 import base64
-import os
 
 ## Used when needing to 
 sql_schema = {
@@ -11,8 +10,9 @@ sql_schema = {
         site_name TEXT NOT NULL,
         username TEXT,
         user_pwd TEXT,
+        nickname TEXT,
         site_token TEXT,
-        PRIMARY KEY(site_name)
+        PRIMARY KEY(nickname)
     );""",
     'taiga_projects': """CREATE TABLE IF NOT EXISTS taiga_projects (
         id INTEGER NOT NULL,
@@ -63,31 +63,30 @@ sql_schema = {
     'repos': """CREATE TABLE IF NOT EXISTS repos (
         id INTEGER,
         repo_name TEXT NOT NULL,
-        owner_uid TEXT NOT NULL,
-        repo_site_id Integer NOT NULL,
-        PRIMARY KEY(id AUTOINCREMENT),
-        FOREIGN KEY(repo_site_id) REFERENCES repo_sites(id)
+        owner_name TEXT NOT NULL,
+        site_nickname TEXT NOT NULL,
+        is_linked BOOLEAN NOT NULL CHECK (is_linked IN (0, 1)),
+        last_commit_dt TEXT,
+        PRIMARY KEY(id, repo_name, site_nickname),
+        FOREIGN KEY(site_nickname) REFERENCES sites(nickname)
     );""",
     'commits': """CREATE TABLE IF NOT EXISTS commits (
         id INTEGER,
-        repo_id INTEGER,
+        repo_name TEXT NOT NULL,
+        task_num INTEGER,
+        committer TEXT,
         az_date INTEGER NOT NULL,
         utc_datetime INTEGER NOT NULL,
         commit_message TEXT,
-        task_num INTEGER,
-        author TEXT,
         commit_url TEXT NOT NULL,
-        PRIMARY KEY(id),
-        FOREIGN KEY(task_num) REFERENCES tasks(task_num),
-        FOREIGN KEY(author) REFERENCES members(username)
+        PRIMARY KEY(id, repo_name),
+        FOREIGN KEY(task_num) REFERENCES tasks(task_num)
     );"""
 }
 
 init_statements = {
-    'sites': """INSERT OR IGNORE INTO sites (site_name, username, user_pwd, site_token) VALUES
-                ('Taiga', NULL, NULL, NULL),
-                ('GitHub', NULL, NULL, NULL),
-                ('GitLab', NULL, NULL, NULL);""",
+    'sites': """INSERT OR IGNORE INTO sites (site_name, username, user_pwd, nickname, site_token) VALUES
+                ('Taiga', NULL, NULL, 'Taiga', NULL);""",
     'taiga_csv_urls': """INSERT OR IGNORE INTO taiga_csv_urls (dname, durl) VALUES
                         ('user_story', NULL),
                         ('task', NULL);"""
@@ -98,9 +97,9 @@ class RecDB:
     cursor = None
 
     def __init__(self, db_filepath='./capstone_data.db'):
-        self.__connect_or_create_db(db_filepath)
+        self._connect_or_create_db(db_filepath)
         
-    def __connect_or_create_db(self, filepath):
+    def _connect_or_create_db(self, filepath):
         try:
             uri = 'file:{}?mode=rw'.format(pathname2url(filepath))
             self.conn = db.connect(uri, check_same_thread=False, uri=True)
@@ -144,12 +143,35 @@ class RecDB:
         result = self.cursor.fetchone()
         return result is not None
 
-    def insert(self, table, data):
+    def insert(self, table, data, cond=None):
         if self.validate_table_exists(table):
             columns = ', '.join(data.keys())
             placeholders = ', '.join('?' * len(data))
-            query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders});"
-            self.cursor.execute(query, tuple(data.values()))
+
+            set_placeholder = ''
+            for key in data.keys():
+                if set_placeholder == '':
+                    set_placeholder += f'{key} = ?'
+                else:
+                    set_placeholder += f', {key} = ?'
+            
+            conditions_placeholder = ''
+            if cond is not None:
+                conditions_placeholder = ' WHERE '
+                for key in cond.keys():
+                    if conditions_placeholder == ' WHERE ':
+                        conditions_placeholder += f'{key} = ?'
+                    else:
+                        conditions_placeholder += f'AND {key} = ?'
+                
+                cond_args = tuple(cond.values())
+
+            exe_args = tuple(data.values()) + cond_args
+
+            query1 = f"INSERT OR IGNORE INTO {table} ({columns}) VALUES ({placeholders});"
+            query2 = f"UPDATE {table} SET {set_placeholder}{conditions_placeholder};"
+            self.cursor.execute(query1, tuple(data.values()))
+            self.cursor.execute(query2, exe_args or ())
             self.conn.commit()
             return True
         return False

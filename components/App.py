@@ -4,19 +4,20 @@ import ttkthemes
 import sv_ttk
 import pandas as pd
 
-from models import DataManager
+from models.DataManager import DataController
 from components import GitFrame, HomeFrame, TaigaFrame, ReportsFrame
 from models.database.RecordDatabase import RecDB
 
 class Application():
-    root = None
-    curr_tab = None
-    prev_tab = None
-    db = None
+    
 
     def __init__(self):
+        self.curr_tab = None
+        self.prev_tab = None
+
         db = RecDB()
-        dc = DataManager.DataController(db)
+        dc = DataController(db)
+
         title = 'Capstone Automation Tool'
         geometry = '1000x800'
 
@@ -31,12 +32,12 @@ class Application():
         self.tabControl = ttk.Notebook(self.root)
         self.home_tab = HomeFrame.HomeFrame(self.tabControl)
         self.taiga_tab = TaigaFrame.TaigaFrame(self.tabControl, dc)
-        # self.git_tab = GitFrame.GitFrame(self.tabControl, dc)
+        self.git_tab = GitFrame.GitFrame(self.tabControl, dc)
         # self.reports_tab = ReportsFrame.ReportsFrame(self.tabControl, self, dc)
 
         self.tabControl.add(self.home_tab, text='Home')
         self.tabControl.add(self.taiga_tab, text='Taiga')
-        # self.tabControl.add(self.git_tab, text='Git')
+        self.tabControl.add(self.git_tab, text='Git')
         # self.tabControl.add(self.reports_tab, text='Reports')
         self.tabControl.pack(expand = 1, fill ="both") 
 
