@@ -86,12 +86,13 @@ class TaigaDataServicer:
                 for project in res.json():
                     if project.get("type") == 'project':
                         p_id = project.get("id")
-                        p_name = project.get("name")
-                        p_owner = project.get("slug").split("-")[0]
+                        p_slug = project.get("slug")
+                        p_owner = p_slug.split("-")[0]
+                        p_name = project.get('name')
                     else:
                         try:
-                            p_slug = project.get("project_slug")
                             p_id = project.get("project")
+                            p_slug = project.get("project_slug")
                             p_owner, p_name = p_slug.split("-")
                         except Exception as e:
                             print(e)
@@ -102,13 +103,14 @@ class TaigaDataServicer:
                                 'id': p_id,
                                 'project_name': p_name,
                                 'project_owner': p_owner,
+                                'project_slug': p_slug,
                                 'is_selected': 0
                             }
                             projects_data.append(p_data)
                             project_ids.append(p_id)
         else:
-            print('ELSE')
-        return pd.DataFrame(data=projects_data, columns=['id', 'project_name', 'project_owner', 'is_selected'])
+            pass
+        return pd.DataFrame(data=projects_data, columns=['id', 'project_name', 'project_owner', 'project_slug', 'is_selected'])
         
     def _make_post_api_req(self, url, header=None, data=None):
         res = requests.post(url=url, headers=header, json=data)
@@ -152,17 +154,17 @@ class TaigaDataServicer:
 
     def _format_us_df(self, us_df : pd.DataFrame) -> pd.DataFrame:
         if us_df is not None:
-            us_df = us_df.set_axis(['id', 'us_num', 'is_complete', 'sprint', 'points'], axis=1)
+            us_df = us_df.set_axis(['id', 'us_num', 'is_complete', 'sprint', 'points', 'us_subject'], axis=1)
         return us_df
     
     def _format_task_df(self, tasks_df : pd.DataFrame) -> pd.DataFrame:
         if tasks_df is not None:
-            tasks_df = tasks_df.set_axis(['id', 'task_num', 'us_num', 'is_complete', 'assignee', 'task_subject'], axis=1)
+            tasks_df = tasks_df.set_axis(['id', 'task_num', 'us_num', 'sprint', 'is_complete', 'assignee', 'task_subject'], axis=1)
             tasks_df.insert(3, 'is_coding', False)
         return tasks_df
 
     def _inv_val_to_none(self, df: pd.DataFrame):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
+        df = df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA)
     
     def import_data_by_api(self, project_id) -> list[pd.DataFrame]:
         def import_data(url):
@@ -213,18 +215,20 @@ class TaigaDataServicer:
             res = import_data(f'{self.base_url}/userstories?project={project_id}')
             if res.status_code == 200:
                 raw_us_df = pd.json_normalize(res.json())
-                return self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'milestone_name', 'total_points']])
+                print(raw_us_df.columns)
+                return self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'milestone_name', 'total_points', 'subject']])
             return None
             
-        def import_task_data(member_df : pd.DataFrame, us_df : pd.DataFrame) -> pd.DataFrame:
+        def import_task_data(member_df : pd.DataFrame, us_df : pd.DataFrame, sprint_dict: dict) -> pd.DataFrame:
             res = import_data(f'{self.base_url}/tasks?project={project_id}')
+            print(sprint_dict)
             if res.status_code == 200:
                 raw_task_df = pd.json_normalize(res.json())
                 
-                headers = ['id', 'ref', 'us_num', 'is_closed', 'assigned_to', 'subject']
+                headers = ['id', 'ref', 'us_num', 'sprint', 'is_closed', 'assigned_to', 'subject']
                 data = []
 
-                for index, row in raw_task_df.iterrows():
+                for _, row in raw_task_df.iterrows():
                     task_id = row['id']
                     task = row['ref']
                     closed = row['is_closed']
@@ -236,6 +240,11 @@ class TaigaDataServicer:
                         us = pd.NA
 
                     try:
+                        sprint = sprint_dict[row['milestone']]
+                    except:
+                        sprint = pd.NA
+
+                    try:
                         mem_id = row['assigned_to']
                         username = member_df.loc[member_df['id'] == mem_id, 'username'].iloc[0]
                     except:
@@ -243,16 +252,21 @@ class TaigaDataServicer:
 
                     subject = row['subject']
 
-                    row_data = [task_id, task, us, closed, username, subject]
+                    row_data = [task_id, task, us, sprint, closed, username, subject]
                     data.append(row_data)
                 tasks_df = pd.DataFrame(columns=headers, data=data)
                 return self._format_task_df(tasks_df)
             return None
 
         sprints_df = import_sprint_data()
+
+        sprints_dict = dict()
+        for _, row in sprints_df[['id', 'sprint_name']].dropna().drop_duplicates().iterrows():
+            sprints_dict[row['id']] = row['sprint_name']
+
         members_df = import_member_data()
         us_df = import_us_data()
-        task_df = import_task_data(members_df, us_df)
+        task_df = import_task_data(members_df, us_df, sprints_dict)
 
         return sprints_df, members_df, us_df, task_df
     
@@ -271,7 +285,7 @@ class TaigaDataServicer:
             headers = ['id', 'username']
             data = []
 
-            for index, row in df.iterrows():
+            for _, row in df.iterrows():
                 uname = row['assigned_to']
                 fname = row['assigned_to_full_name']
 
@@ -293,7 +307,7 @@ class TaigaDataServicer:
 
         def import_us_csv(url) -> pd.DataFrame:
             raw_us_df = import_csv_by_url(url)
-            us_df = self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'sprint', 'total-points']].copy(deep=True))
+            us_df = self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'sprint', 'total-points', 'subject']].copy(deep=True))
             sprint_df = parse_sprints(raw_us_df[['sprint_id', 'sprint', 'sprint_estimated_start', 'sprint_estimated_finish']].copy(deep=True))
             return sprint_df, us_df
 
@@ -326,7 +340,7 @@ class TaigaDataServicer:
             headers = ['id', 'username']
             data = []
 
-            for index, row in df.iterrows():
+            for _, row in df.iterrows():
                 uname = row['assigned_to']
                 fname = row['assigned_to_full_name']
 
@@ -348,7 +362,7 @@ class TaigaDataServicer:
 
         def import_us_data_by_file(fp) -> pd.DataFrame:
             raw_us_df = import_by_file(fp)
-            us_df = self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'sprint', 'total-points']].copy(deep=True))
+            us_df = self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'sprint', 'total-points', 'subject']].copy(deep=True))
             sprint_df = parse_sprints(raw_us_df[['sprint_id', 'sprint', 'sprint_estimated_start', 'sprint_estimated_finish']].copy(deep=True))
             return sprint_df, us_df
 

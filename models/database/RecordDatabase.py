@@ -18,6 +18,7 @@ sql_schema = {
         id INTEGER NOT NULL,
         project_name TEXT NOT NULL,
         project_owner TEXT NOT NULL,
+        project_slug TEXT NOT NULL,
         is_selected BOOLEAN NOT NULL CHECK (is_selected IN (0, 1)),
         PRIMARY KEY(id)
     );""", 
@@ -45,6 +46,7 @@ sql_schema = {
         is_complete BOOLEAN NOT NULL CHECK (is_complete IN (0, 1)),
         sprint TEXT,
         points INTEGER NOT NULL,
+        us_subject TEXT,
         PRIMARY KEY(id),
         FOREIGN KEY(sprint) REFERENCES sprints(sprint_name)
     );""",
@@ -52,6 +54,7 @@ sql_schema = {
         id INTEGER,
         task_num INTEGER NOT NULL,
         us_num INTEGER,
+        sprint TEXT,
         is_coding BOOLEAN NOT NULL CHECK (is_coding IN (0, 1)),
         is_complete BOOLEAN NOT NULL CHECK (is_complete IN (0, 1)),
         assignee TEXT,

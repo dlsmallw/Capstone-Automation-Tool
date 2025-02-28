@@ -2,7 +2,6 @@ from github import Auth, Github
 from github.AuthenticatedUser import AuthenticatedUser
 from github.NamedUser import NamedUser
 from github.Repository import Repository
-from typing import Type
 
 import pandas as pd
 import numpy as np
@@ -72,9 +71,14 @@ class GitHubDataServicer:
                     branch_dict[branch_name] = branch_sha
 
         return branch_dict
+
+    def get_repo_by_name(self, repo_name):
+        for repo in self.user.get_repos():
+            if repo.name == repo_name:
+                return repo
     
     def get_contributors(self, repo_name) -> list[str]:
-        repo = self.user.get_repo(repo_name)
+        repo = self.get_repo_by_name(repo_name)
         return self._get_contributors(repo)
     
     def _get_contributors(self, repo : Repository) -> list[str]:
@@ -102,8 +106,8 @@ class GitHubDataServicer:
                     committer = suspected_name
         return committer
     
-    def _inv_val_format(self, df: Type[pd.DataFrame]):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
+    def _inv_val_format(self, df: pd.DataFrame):
+        df = df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA)
 
     def _format_commit_data(self, df : pd.DataFrame) -> pd.DataFrame:
         return df
@@ -118,7 +122,7 @@ class GitHubDataServicer:
     def _make_api_call(self, header, url) -> requests.Response:
         return requests.get(url, headers=header)
     
-    def import_commit_data(self, repo, since=None) -> pd.DataFrame:
+    def import_commit_data(self, repo, since=None):
         auth_header = self._get_auth_header()
         
         {
@@ -127,7 +131,7 @@ class GitHubDataServicer:
             'X-GitHub-Api-Version': '2022-11-28'
         }
     
-        repo_obj = self.user.get_repo(repo)
+        repo_obj = self.get_repo_by_name(repo)
 
         contributors = self._get_contributors(repo_obj)
         branch_dict = self._get_repo_branches(repo_obj)
@@ -139,7 +143,8 @@ class GitHubDataServicer:
         since_param = f'since={since}&' if since is not None else ''
 
         for branch in branch_dict.keys():
-            print(branch)
+            yield 'In Progress', branch
+
             url = f'{base_url}/commits?{since_param}per_page=100&sha={branch_dict[branch]}'
 
             pagesRemaining = True
@@ -147,7 +152,7 @@ class GitHubDataServicer:
             next_url = url
 
             while pagesRemaining:
-                res = self._make_api_call(headers=auth_header, url=next_url)
+                res = self._make_api_call(header=auth_header, url=next_url)
                 pattern = r'task[^a-zA-Z\d\s]?\d+'
 
                 for commit_entry in res.json():
@@ -161,7 +166,7 @@ class GitHubDataServicer:
                         task_num = int(re.search(r'\d+', match.group()).group()) if match else None
                     
                         # Takes the commit timezone (UTC) and converts to AZ timezone
-                        utc_dt = datetime.datetime.strptime(commit_obj['committer']['date'], '%Y-%m-%dT%H:%M:%SZ')
+                        utc_dt = pd.to_datetime(commit_obj['committer']['date'], format='%Y-%m-%dT%H:%M:%SZ', utc=True)
                         az_dt = utc_dt.astimezone(pytz.timezone('US/Arizona'))
                         
                         commits.append({
@@ -184,6 +189,9 @@ class GitHubDataServicer:
             branch_commits = pd.json_normalize(commits)
 
             if branch_commits is not None and len(branch_commits) > 0:
-                all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset='id', keep='first')
+                if all_data is None or len(all_data) < 1:
+                    all_data = branch_commits
+                else:
+                    all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset='id', keep='first')
                     
-        return self._format_commit_data(all_data)
+        yield 'Complete', self._format_commit_data(all_data)

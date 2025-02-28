@@ -34,8 +34,9 @@ class DataController:
         #### Projects
         self.taiga_projects_df : pd.DataFrame = None
         self.sel_pid = None
-        self.sel_project_name = None
-        self.sel_project_owner = None
+        self.sel_project_name: str = None
+        self.sel_project_owner: str = None
+        self.sel_project_slug: str = None
         self.project_selected = False
         #### Dataframes
         self.sprints_df : pd.DataFrame = None
@@ -58,25 +59,25 @@ class DataController:
 
         ## Instance initializations and data loading
         self.db = db
-        self.ts = self.init_taiga_servicer()
-        self.gs = self.init_git_servicer()
+        self.ts = self._init_taiga_servicer()
+        self.gs = self._init_git_servicer()
 
     ## Initialization Functions
     ##=============================================================================
 
-    def init_taiga_servicer(self) -> TaigaDataServicer | None:
+    def _init_taiga_servicer(self) -> TaigaDataServicer | None:
         def load_taiga_projects():
             projects = self.db.table_to_df('taiga_projects')
             if projects is not None and len(projects) > 0:
                 self.taiga_projects_df = projects
-                row = projects.loc[projects['is_selected'] == 1]
+                row = projects.loc[projects['is_selected'] == 1].values[0]
 
                 if len(row) > 0:
-                    self.set_linked_taiga_project(row['id'], row['project_name'], row['project_owner'])
+                    self._set_linked_taiga_project(row[0], row[1], row[2], row[4])
 
         def load_saved_taiga_data():
-            self.update_sprints_df(self.db.table_to_df('sprints'))
-            self.update_members_df(self.db.table_to_df('members'))
+            self._update_sprints_df(self.db.table_to_df('sprints'))
+            self._update_members_df(self.db.table_to_df('members'))
             self.update_us_df(self.db.table_to_df('userstories'))
             self.update_tasks_df(self.db.table_to_df('tasks'))
 
@@ -84,14 +85,14 @@ class DataController:
         load_saved_taiga_data()
         return TaigaDataServicer(self.load_taiga_credentials())
     
-    def init_git_servicer(self) -> GitServicer:
+    def _init_git_servicer(self) -> GitServicer:
         def load_accts():
             accts = self.db.table_to_df('sites')
             repo_accts = accts[accts['nickname'] != 'Taiga']
             for index, row in repo_accts.iterrows():
                 user, token = self.db.decrypt([row['username'], row['site_token']])
-                repo_accts.iloc[index - 1]['username'] = user
-                repo_accts.iloc[index - 1]['site_token'] = token
+                repo_accts.loc[index, 'username'] = user
+                repo_accts.loc[index, 'site_token'] = token
             
             if repo_accts is not None and len(repo_accts) > 0:
                 self.git_accts = dict()
@@ -102,10 +103,11 @@ class DataController:
                     user = row['username']
                     token = row['site_token']
 
-                    res, msg = self.validate_token(site, token)
+                    res, msg = self._validate_token(site, token)
 
                     if res == 'Success':
                         details = "Ready to make API calls"
+                        gs.init_git_servicer(site, nickname, token)
                     else:
                         details = msg
 
@@ -134,7 +136,7 @@ class DataController:
     ## Util Functions
     ##=============================================================================
 
-    def validate_token(self, site, token):
+    def _validate_token(self, site, token):
         def gh_request(token):
             base_url = "https://api.github.com/user"
             header = {
@@ -167,28 +169,28 @@ class DataController:
         except Exception as e:
             return 'Error', f'Exception - {e}'
 
-    def get_site_credentials_from_db(self, site_name):
+    def _get_site_credentials_from_db(self, site_name):
         return self.db.decrypt(tuple(self.db.select('sites', ['username', 'user_pwd', 'site_token'], {'site_name': site_name})[0]))
     
-    def update_user_credentials(self, site_name, username=None, pwd=None, token=None):
+    def _update_user_credentials(self, site_name, username=None, pwd=None, token=None):
         return self.db.update('sites', dict(zip(['username', 'user_pwd', 'site_token'], self.db.encrypt([username, pwd, token]))), {'site_name': site_name})
     
     def check_if_nickname_exists(self, nickname):
         result = self.db.select('sites', conditions={'nickname': nickname})
         return len(result) > 0
     
-    def check_if_token_exists(self, token):
+    def _check_if_token_exists(self, token):
         for acct in self.git_accts.keys():
             if token == self.git_accts[acct]['token']:
                 return True
         return False
     
     def update_git_acct(self, site, nickname, token):
-        res, msg = self.validate_token(site, token)
+        res, msg = self._validate_token(site, token)
         if res == 'Error':
             return res, msg
         
-        if self.check_if_token_exists(token):
+        if self._check_if_token_exists(token):
             return 'Error', 'Account associated with this token already exists'
         
         username = msg
@@ -228,7 +230,6 @@ class DataController:
         self.git_accts.pop(nickname)
         self.db.delete('sites', conditions={'nickname': nickname})
         self.db.delete('repos', conditions={'site_nickname': nickname} )
-        return 
     
     def get_git_accts(self):
         accts = []
@@ -240,19 +241,19 @@ class DataController:
                 accts.append([site, nname, user, details])
         return accts
     
-    def get_acct_repos(self, nickname):
+    def _get_acct_repos(self, nickname):
         self.pull_repos(nickname)
         return self.get_avail_repos()
     
     def link_repo(self, repo):
         repos = self.repos.copy(deep=True)
         repos.loc[repos['repo_name'] == repo, 'is_linked'] = 1
-        self.update_repos(repos, cols=['is_linked'])
+        self._update_repos(repos, cols=['is_linked'])
 
     def unlink_repo(self, repo):
         repos = self.repos.copy(deep=True)
         repos.loc[repos['repo_name'] == repo, 'is_linked'] = 0
-        self.update_repos(repos, cols=['is_linked'])
+        self._update_repos(repos, cols=['is_linked'])
 
     def repos_available(self) -> bool:
         return self.repos is not None and len(self.repos) > 0
@@ -277,9 +278,6 @@ class DataController:
     def get_task_df(self) -> pd.DataFrame:
         return self.tasks_df
     
-    def get_members_df(self) -> pd.DataFrame:
-        return self.members_df
-    
     def get_sprints_df(self) -> pd.DataFrame:
         return self.sprints_df
 
@@ -292,19 +290,26 @@ class DataController:
     def get_available_projects(self):
         projects = []
         
-        for index, row in self.taiga_projects_df.iterrows():
+        for _, row in self.taiga_projects_df.iterrows():
             projects.append(row['project_name'])
         return projects
     
     def get_linked_taiga_project(self):
         return self.sel_pid, self.sel_project_name, self.sel_project_owner
 
-    def set_linked_taiga_project(self, pid, name, owner):
-        if pid and name and owner:
+    def _set_linked_taiga_project(self, pid, name, owner, slug):
+        if pid is not None and name is not None and owner is not None:
             self.sel_pid = pid
             self.sel_project_name = name
             self.sel_project_owner = owner
+            self.sel_project_slug = slug
             self.project_selected = True
+
+    def _get_taiga_base_url(self):
+        base_url = None
+        if self.project_selected:
+            base_url = f'https://tree.taiga.io/project/{self.sel_project_slug}/task/'
+        return base_url
 
     # Function to authenticate with Taiga API
     def authenticate_with_taiga(self, username, password):
@@ -323,7 +328,7 @@ class DataController:
             if response.status_code == 200:
                 auth_token = response.json().get("auth_token")
                 self.ts.update_user_credentials(username, password, auth_token)
-                self.update_user_credentials('Taiga', username, password, auth_token)
+                self._update_user_credentials('Taiga', username, password, auth_token)
 
                 return "Success", f"Login successful! Token: {auth_token}"
             else:
@@ -342,7 +347,7 @@ class DataController:
 
             self.taiga_projects_df.loc[self.taiga_projects_df['project_name'] == project, 'is_selected'] = 1
             self.db.df_to_table('taiga_projects', self.taiga_projects_df)
-            self.set_linked_taiga_project(sel_row['id'].iloc[0], sel_row['project_name'].iloc[0], sel_row['project_owner'].iloc[0])
+            self._set_linked_taiga_project(sel_row['id'].iloc[0], sel_row['project_name'].iloc[0], sel_row['project_owner'].iloc[0], sel_row['project_slug'].iloc[0])
             return "Success", f"Successfully linked project '{project}'"
         else:
             return "ERROR", f"No project by name '{project}' exists"
@@ -351,13 +356,10 @@ class DataController:
         return self.taiga_data_available
 
     def load_taiga_credentials(self):
-        return self.get_site_credentials_from_db(TAIGA)[0:2]
+        return self._get_site_credentials_from_db(TAIGA)[0:2]
     
-    def get_taiga_credentials(self):
-        return self.ts.get_credentials()
-    
-    def update_taiga_credentials(self, uname=None, pwd=None):
-        is_success = self.update_user_credentials(TAIGA, username=uname, pwd=pwd)
+    def _update_taiga_credentials(self, uname=None, pwd=None):
+        is_success = self._update_user_credentials(TAIGA, username=uname, pwd=pwd)
         return is_success
     
     def update_taiga_csv_urls(self, us_url='NULL', task_url='NULL'):
@@ -392,7 +394,7 @@ class DataController:
     def clear_taiga_link(self):
         self.clear_taiga_data()
         self.db.clear_table('taiga_projects')
-        self.update_taiga_credentials()
+        self._update_taiga_credentials()
         self.update_taiga_csv_urls()
         self.ts.clear_linked_data()
 
@@ -411,7 +413,7 @@ class DataController:
             self.pull_repos(acct)
     
     def pull_repos(self, nickname):
-        self.update_repos(self.gs.get_repos(nickname))
+        self._update_repos(self.gs.get_repos(nickname))
 
     def get_avail_repos(self):
         repos = []
@@ -429,31 +431,39 @@ class DataController:
                 linked.append([row['site_nickname'], row['repo_name']])
         return linked
     
-    def ready_for_api_calls(self, nickname):
-        return self.gs.ready_for_api_calls(nickname)
-    
-    def pull_contributors(self):
-        contributors = []
-        for nickname, repo_name in self.get_linked_repos():
-            contributors += self.gs.get_contributors(nickname, repo_name)
+    def clear_commit_data(self):
+        self.commits_df = None
+        for _, repo in self.get_linked_repos():
+            self._update_latest_commit_date(repo, None)
+        self.db.clear_table('commits')
 
-        if len(contributors) > 0:
-            self.contributors = contributors
+    def get_commits_df(self):
+        return self.commits_df
 
-    def get_contributors(self):
-        return self.contributors
+    def import_commit_data(self):
+        linked_df = self.repos.loc[self.repos['is_linked'] == 1]
+        for index, row in linked_df.iterrows():
+            nname = row['site_nickname']
+            repo = row['repo_name']
+            latest_dt = row['last_commit_dt']
+            if pd.isna(latest_dt):
+                latest_dt = None
+
+            for res, data in self.gs.import_commit_data(nname, repo, latest_dt):
+                if res == 'In Progress':
+                    yield res, [nname, repo, data]
+                elif res == 'Complete':
+                    latest_commit_date = data['utc_datetime'].max()
+                    latest_commit_str = latest_commit_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    self._update_latest_commit_date(repo, latest_commit_str)
+                    self.update_commit_df(data)
+                    yield res, [nname, repo]
     
     ## Data Manipulation
     ##=============================================================================
 
     def _inv_val_format(self, df: pd.DataFrame):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
-
-    def get_cell_val_from_df(self, df : pd.DataFrame, desired_field, cond_field, cond_val):
-        try:
-            return df.loc[df[cond_field] == cond_val, desired_field].iloc[0]
-        except:
-            return None
+        df = df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA)
         
     def update_df(self, curr_df: pd.DataFrame, new_df: pd.DataFrame, col_to_index='id', cols=None):
         try:
@@ -477,19 +487,12 @@ class DataController:
                 return curr_df
         except Exception as e:
             print(e)
-            # exc_type = type(e),__name__
-            # exc_cause = 'No Cause/Context Provided'
-            # cause = e.__cause__ or e.__context__
-            # if cause:
-            #     exc_cause = str(cause)
-
-            # print(f'{exc_type}: {exc_cause}')
             return curr_df
         
     #### Taiga
     ####===========================================================================
     
-    def update_projects_df(self, new_df):
+    def _update_projects_df(self, new_df):
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
             self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
@@ -504,7 +507,7 @@ class DataController:
             self.db.df_to_table('taiga_projects', self.taiga_projects_df)
             self.taiga_projects_df = format_df(self.db.table_to_df('taiga_projects'))
 
-    def update_sprints_df(self, new_df: pd.DataFrame):
+    def _update_sprints_df(self, new_df: pd.DataFrame):
         def to_table_format(df: pd.DataFrame) -> pd.DataFrame:
             df['sprint_start'] = pd.to_datetime(df['sprint_start']).dt.strftime('%m/%d/%Y')
             df['sprint_end'] = pd.to_datetime(df['sprint_end']).dt.strftime('%m/%d/%Y')
@@ -527,7 +530,7 @@ class DataController:
             self.sprints_df = format_df(self.db.table_to_df('sprints'))
 
 
-    def update_members_df(self, new_df: pd.DataFrame):
+    def _update_members_df(self, new_df: pd.DataFrame):
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
             self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
@@ -549,7 +552,7 @@ class DataController:
             df['us_num'] = df['us_num'].astype(pd.Int64Dtype())
             df['points'] = df['points'].astype(pd.Int64Dtype())
             df['is_complete'] = df['is_complete'].astype(pd.BooleanDtype())
-            df['points'].replace(pd.NA, 0, inplace=True)
+            df['points'] = df['points'].replace(pd.NA, 0)
             
             df.dropna(inplace=True, how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
@@ -584,57 +587,23 @@ class DataController:
 
         self.taiga_data_available = self.us_df is not None and len(self.us_df) > 0 and self.tasks_df is not None and len(self.tasks_df) > 0
 
-    def __format_and_centralize_taiga_data(self):
-        sprints_df = self.sprints_df
-        members_df = self.members_df
-        tasks_df = self.tasks_df
-        us_df = self.us_df
-
-
-        data_columns = ['task_num', 'us_num', 'points', 'assignee', 'is_coding', 'sprint_name', 'sprint_start', 'sprint_end', 'task_subject']
-        all_data = [0] * len(tasks_df)
-
-        for index, row in tasks_df.iterrows():
-            us_num = row['user_story']
-            us_row = us_df.loc[us_df['ref'] == us_num]
-
-            
-            sprint = row['sprint']
-            sprint_start, sprint_end = self.__get_sprint_date(sprint)
-
-            user_story = int(us_num) if pd.notnull(us_num) else None
-            points = int(us_row['total-points'].values[0] if pd.notnull(us_num) else 0)
-            task = int(row['ref'])
-            assigned = row['assigned_to'] if pd.notnull(row['assigned_to']) else 'Unassigned'
-            coding = ""
-            subject = row['subject']
-            
-            data_row = [sprint, sprint_start, sprint_end, user_story, points, task, assigned, coding, subject]
-            all_data[index] = data_row
-
-    #### Git
-    ####===========================================================================
-    
-    
-    
-
     ## Data Importing
     ##=============================================================================
     #### Taiga
     ####===========================================================================
 
-    def pull_taiga_projects(self):
+    def _pull_taiga_projects(self):
         projects = self.ts.get_watched_projects()
         if projects is not None and not projects.empty:
-             self.update_projects_df(projects)
+             self._update_projects_df(projects)
 
     def wait_for_projects(self):
-        self.pull_taiga_projects()
+        self._pull_taiga_projects()
         return True
     
-    def process_taiga_data(self, sprint_df, member_df, us_df, tasks_df):
-        self.update_sprints_df(sprint_df)
-        self.update_members_df(member_df)
+    def _process_taiga_data(self, sprint_df, member_df, us_df, tasks_df):
+        self._update_sprints_df(sprint_df)
+        self._update_members_df(member_df)
         self.update_us_df(us_df)
         self.update_tasks_df(tasks_df)
 
@@ -642,7 +611,7 @@ class DataController:
         if self.project_selected and self.ts.token_set():
             try:
                 sprints_df, members_df, us_df, task_df = self.ts.import_data_by_api(self.sel_pid)
-                self.process_taiga_data(sprints_df, members_df, us_df, task_df)
+                self._process_taiga_data(sprints_df, members_df, us_df, task_df)
                 return 'Success', f'Successfully imported Taiga data by API'
             except Exception as e:
                 return 'Error', f'Failed to import Taiga data by API - {e}'
@@ -651,7 +620,7 @@ class DataController:
         if us_url and tasks_url:
             try:
                 sprints_df, members_df, us_df, task_df = self.ts._import_data_by_urls(us_url, tasks_url)
-                self.process_taiga_data(sprints_df, members_df, us_df, task_df)
+                self._process_taiga_data(sprints_df, members_df, us_df, task_df)
                 return 'Success', f'Successfully imported Taiga data by URLs'
             except Exception as e:
                 return 'Error', f'Failed to import Taiga data by URLs - {e}'
@@ -660,7 +629,7 @@ class DataController:
         if us_fp and tasks_fp:
             try:   
                 sprints_df, members_df, us_df, task_df = self.ts._import_data_by_files(us_fp, tasks_fp)
-                self.process_taiga_data(sprints_df, members_df, us_df, task_df)
+                self._process_taiga_data(sprints_df, members_df, us_df, task_df)
                 return 'Success', f'Successfully imported Taiga data by File'
             except Exception as e:
                 return 'Error', f'Failed to import Taiga data by File - {e}'
@@ -668,28 +637,24 @@ class DataController:
     #### Git
     ####===========================================================================
 
-    def update_latest_commit_date(self, repo, date):
-        self.gh_repos.loc[self.repos['repo_name'] == repo, 'last_commit_dt'] = date
-        self.update_repos(self.gh_repos, cols=['last_commit_dt'])
+    def _update_latest_commit_date(self, repo, date):
+        self.repos.loc[self.repos['repo_name'] == repo, 'last_commit_dt'] = date
+        self._update_repos(self.repos, cols=['last_commit_dt'])
 
     def update_commit_df(self, new_df : pd.DataFrame):
         def to_table_format(df) -> pd.DataFrame:
-            df['utc_datetime'] = pd.to_datetime(df['utc_datetime']).dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+            # df['utc_datetime'] = pd.to_datetime(df['utc_datetime']).dt.strftime('%Y-%m-%dT%H:%M:%SZ')
             return df
 
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
             self._inv_val_format(df)
-            df['id'] = df['id'].astype(pd.Int64Dtype())
+            df['id'] = df['id'].astype(pd.StringDtype())
             df['task_num'] = df['task_num'].astype(pd.Int64Dtype())
             df['utc_datetime'] = pd.to_datetime(df['utc_datetime'])
 
             df.dropna(inplace=True, how='all')
-            df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
+            df = df.drop_duplicates(subset=['id', 'repo_name'], keep='first').reset_index(drop=True)
             df.sort_values(by='utc_datetime', ascending=True, inplace=True)
-
-            latest_commit_date = df['utc_datetime'].dt.strftime('%Y-%m-%dT%H:%M:%SZ')
-            repository = df.loc[0, 'repo_name']
-            self.update_latest_commit_date(repository, latest_commit_date)
             return df
 
         if new_df is not None and len(new_df) > 0:
@@ -698,7 +663,7 @@ class DataController:
             self.commits_df = format_df(self.db.table_to_df('commits'))
         self.commit_data_available = self.commits_df is not None and len(self.commits_df) > 0
 
-    def update_repos(self, new_df: pd.DataFrame, cols=['repo_name', 'owner_name']):
+    def _update_repos(self, new_df: pd.DataFrame, cols=['repo_name', 'owner_name']):
         def format_df(df: pd.DataFrame) -> pd.DataFrame:
             self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
@@ -716,7 +681,7 @@ class DataController:
     ## Data File reading/writing
     ##=============================================================================
 
-    def __create_new_wb(self, filename, sheets=None):
+    def _create_new_wb(self, filename, sheets=None):
         if os.path.exists(filename):
             os.remove(filename)
         
@@ -738,7 +703,7 @@ class DataController:
         wb.save(filename)
         wb.close()
 
-    def __parsed_data_to_spreadsheet(self, df, writer, sheet):
+    def _parsed_data_to_spreadsheet(self, df, writer, sheet):
         df.to_excel(writer, sheet_name=sheet, index=False)
 
     def write_to_csv(self, filepath: Type[str], df: Type[pd.DataFrame]):
@@ -754,108 +719,21 @@ class DataController:
         df.to_csv(filepath, index=False)
 
     def write_to_excel(self, filepath, df, header_filter=None, sheets=None, sheet_headers=None):
-        self.__create_new_wb(filepath, sheets)
+        self._create_new_wb(filepath, sheets)
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-            self.__parsed_data_to_spreadsheet(df, writer, 'Master')
+            self._parsed_data_to_spreadsheet(df, writer, 'Master')
 
             if sheets is not None:
                 for sheet in sheets:
                     sheet_df = df[df[header_filter == sheet]][sheet_headers]
-                    self.__parsed_data_to_spreadsheet(sheet_df, writer, sheet)
-
-    def __load_from_csv(self, filepath) -> pd.DataFrame | None:
-        df = None
-        if os.path.exists(filepath):
-            print(f' > Loading data from {filepath}')
-            df = pd.read_csv(filepath)
-            df.replace(['', 'None', 'nan', 'NaN'], [None, None, None, None], inplace=True)
-        else:
-            print(f' > File {filepath} does not exist')
-        return df
+                    self._parsed_data_to_spreadsheet(sheet_df, writer, sheet)
     
     def remove_file(self, filepath):
         if os.path.exists(filepath):
             os.remove(filepath)
-
-    ## GitHub Controller Management
-    ##=============================================================================
-
-    def validate_gh_auth(self):
-        return self.gp.gh_auth_validated()
-    
-    def validate_gh_repo(self):
-        return self.gp.gh_repo_validated()
-
-    def set_gh_auth(self, username, token):
-        if self.gp.set_gh_auth(username, token):
-            self.gh_auth_verified = self.gp.auth_validated()
-            self.__update_gh_config_opt('gh_username', username)
-            self.__update_gh_config_opt('gh_token', token)
-    
-    
-
-    def set_gh_owner(self, owner):
-        success = self.gp.set_gh_repo_owner(owner)
-        if success:
-            self.__update_gh_config_opt('gh_repo_owner', owner)
-            self.gh_repo_verified = self.gp.gh_repo_validated()
-        return success
-            
-    def get_gh_repo_owner(self):
-        return self.gp.get_gh_repo_owner()
-    
-    def set_gh_repo(self, repo):
-        success = self.gp.set_gh_repo_name(repo)
-        if success:
-            self.__update_gh_config_opt('gh_repo_name', repo)
-            self.gh_repo_verified = self.gp.gh_repo_validated()
-        return success
-
-    def get_gh_repo_name(self):
-        return self.gp.get_gh_repo_name()
-    
-    
-
-    ## API calling
-    ##=============================================================================
-
-    def make_gh_api_call(self):
-        self.gp.retrieve_gh_commit_data()
-
-    def taiga_retrieve_from_api(self):
-        self.tp.retrieve_data_by_api()
-
-    def taiga_retrieve_from_files(self):
-        self.tp.retrieve_data_by_file()
     
     ## Data retrieval/setting
     ##=============================================================================
-
-    
-    
-    def get_git_master_df(self) -> pd.DataFrame:
-        return self.gp.get_current_commit_data()
-    
-    def get_tasks_from_git_data(self):
-        return self.gp.get_tasks()
-    
-    def get_git_contributors(self):
-        return self.gp.get_contributors()
-    
-    def set_git_master_df(self, df):
-        self.gp.set_commit_data(df)
-    
-    def git_data_ready(self):
-        return self.gp.data_is_ready()
-
-    def check_url_exists(self, url):
-        try:
-            res = requests.get(url)
-            if res.status_code >= 200 and res.status_code < 300:
-                return True
-            return False
-        except:
-            return False
     
     def convert_hyperlinks(self, filepath):
         if not os.path.exists(filepath):
@@ -873,9 +751,7 @@ class DataController:
                                 url_end = cell.value.find('"', url_start)
                                 url = cell.value[url_start:url_end] if url_start > 0 and url_end > url_start else ""
 
-                                url = self.__conv_inv_val_to_none(url)
-
-                                if url is not None and url != None:
+                                if url is not None and url != '':
                                     # Extract Friendly Text (if available)
                                     text_start = cell.value.find('"', url_end + 1) + 1
                                     text_end = cell.value.find('"', text_start)
@@ -896,102 +772,96 @@ class DataController:
     ## Data Formatting for Reports
     ##=============================================================================
     
-    def __generate_hyperlink(self, url, text):
+    def _generate_hyperlink(self, url, text):
         return f'=HYPERLINK("{url}", "{text}")' if url is not None else None
     
-    def generate_task_excel_entry(self, base_url, task_num, text_to_use=None):
+    def _generate_task_excel_entry(self, base_url, task_num, text_to_use=None):
         if task_num is not None:
             if text_to_use is not None:
                 text = text_to_use
             else:
-                text = f'Task-{int(task_num)}'
+                text = f'Task-{task_num}'
             if base_url is not None and base_url != '':
-                url = f'{base_url}/task/{int(task_num)}'
-                return self.__generate_hyperlink(url, text)      
+                url = f'{base_url}{task_num}'
+                return self._generate_hyperlink(url, text)      
             return text
         return None
     
-    def generate_us_entry(self, us_num):
-        if not pd.isna(us_num):
-            return f'US-{int(us_num)}'
-        return 'Storyless'
+    def _generate_us_entry(self, us_num):
+        if us_num == 'Storyless' or pd.isna(us_num):
+            return 'Storyless'
+        else:
+            return f'US-{us_num}'
     
-    def format_wsr_excel(self, df: Type[pd.DataFrame]):
-        base_url = self.get_taiga_project_url()
-        df['task'] = df['task'].apply(lambda x: self.generate_task_excel_entry(base_url, x))
-        df['user_story'] = df['user_story'].apply(lambda x: self.generate_us_entry(x))
-        return df
-    
-    def format_wsr_non_excel(self, df: Type[pd.DataFrame]):
-        members_df = df['assigned_to'].copy(deep=True)
-        members_df.dropna(how='all', inplace=True)
-        members_df = members_df.drop_duplicates(keep='first').reset_index(drop=True)
-        members = members_df.tolist()
-
+    def format_wsr_non_excel(self, df: pd.DataFrame):
+        members = df['assignee'].dropna().drop_duplicates().tolist()
         num_mems = len(members)
 
-        data_columns = ['sprint', 'user_story', 'points', 'task', 'coding']
+        data_columns = ['Sprint', 'User Story', 'Points', 'Task', 'Coding?']
         data_columns.extend(members)
 
-        data = [None] * len(df)
-        for index, row in df.iterrows():
-            us_num = row['user_story']
-            task_num = row['task']
-            assigned = row['assigned_to']
+        data = []
+        for _, row in df.iterrows():
+            us_num = row['us_num']
+            task_num = row['task_num']
+            assigned = row['assignee']
 
             sprint = row['sprint']
-            user_story = int(us_num) if not pd.isna(us_num) else None
+            user_story = int(us_num) if not pd.isna(us_num) else pd.NA
             points = int(row['points'])
-            task = int(task_num) if task_num is not None else None
-            coding = row['coding']
+            task = int(task_num) if pd.notna(task_num) else pd.NA
+            coding = 'TRUE' if row['is_coding'] == 1 else 'FALSE'
 
             mem_data = [None] * num_mems
-            i = 0
-            for mem in members:
-                mem_data[i] = "100%" if assigned == mem else None
-                i += 1
+            if pd.notna(assigned):
+                for idx, mem in enumerate(members):
+                    mem_data[idx] = "100%" if assigned == mem else None
 
-            row_data = [sprint, user_story, points, task, coding]
-            row_data.extend(mem_data)
-            data[index] = row_data
-            
-        result_df = pd.DataFrame(data, columns=data_columns)
+            row_data = [sprint, user_story, points, task, coding] + mem_data
+            data.append(row_data)
+
+        result_df = pd.DataFrame(data=data, columns=data_columns)
         return result_df
     
-    def format_icr_df_non_excel(self, commit_df: Type[pd.DataFrame], taiga_df: Type[pd.DataFrame] = None) -> pd.DataFrame:
-        base_url = self.get_taiga_project_url()
-        raw_task_df = self.tp.get_raw_task_data()
+    def format_wsr_excel(self, df: pd.DataFrame):
+        base_url = self._get_taiga_base_url()
+        df['Task'] = df['Task'].apply(lambda x: self._generate_task_excel_entry(base_url, x))
+        df['User Story'] = df['User Story'].apply(lambda x: self._generate_us_entry(x))
+        return df
+    
+    def format_icr_df_non_excel(self, commit_df: pd.DataFrame, taiga_df: pd.DataFrame = None) -> pd.DataFrame:
+        commit_df = commit_df.sort_values(by='utc_datetime', ascending=True)
 
-        data_columns = ['committer', 'task_url', 'task', 'task_status', 'coding', 'commit_url', 'commit_date', 'Percent_contributed']
+        base_url = self._get_taiga_base_url()
+
+        data_columns = ['Committer', 'Link to Task', 'Task #', 'Task Status', 'Coding Task?', 'Link to Commit', 'Commit Date', 'Percent Contributed']
         data = [None] * len(commit_df)
         for index, row in commit_df.iterrows():
             
             committer = row['committer']
-            task_num = row['task']
+            task_num = row['task_num']
             if not pd.isna(task_num):
-                task_url = f'{base_url}/task/{int(task_num)}' if base_url is not None else None
+                task_url = f'{base_url}{int(task_num)}' if base_url is not None else None
                 task = int(task_num) 
-                is_complete = raw_task_df.loc[raw_task_df['ref'] == task_num, 'is_closed'].iloc[0] if raw_task_df is not None else None
-                task_status = 'Complete' if is_complete else 'In-Process' if raw_task_df is not None else None
-                coding = taiga_df.loc[taiga_df['task'] == task_num, 'coding'].iloc[0] if taiga_df is not None else None
+                is_complete = taiga_df.loc[taiga_df['task_num'] == task_num, 'is_complete'].iloc[0] if taiga_df is not None else None
+                task_status = 'Complete' if is_complete else 'In-Process' if taiga_df is not None else None
+                coding = taiga_df.loc[taiga_df['task_num'] == task_num, 'is_coding'].iloc[0] if taiga_df is not None else None
             else:
                 task_url = None
                 task = None
                 coding = None
                 task_status = None
 
-            commit_url = row['url']
+            commit_url = row['commit_url']
             commit_date = row['az_date']
 
-            row_data = [committer, task_url, task, task_status, coding, commit_url, commit_date, None]
+            row_data = [committer, task_url, task, task_status, coding, commit_url, commit_date, '100']
             data[index] = row_data
             
         result_df = pd.DataFrame(data, columns=data_columns)
         return result_df
     
-    def format_icr_excel(self, df: Type[pd.DataFrame]):
-        df['task_url'] = df['task_url'].apply(lambda url: self.__generate_hyperlink(url, 'Taiga Task Link'))
-        df['commit_url'] = df['commit_url'].apply(lambda url: self.__generate_hyperlink(url, 'Link to Commit'))
+    def format_icr_excel(self, df: pd.DataFrame):
+        df['Link to Task'] = df['Link to Task'].apply(lambda url: self._generate_hyperlink(url, 'Link to Taiga Task'))
+        df['Link to Commit'] = df['Link to Commit'].apply(lambda url: self._generate_hyperlink(url, 'Link to Git Commit'))
         return df
-    
-    

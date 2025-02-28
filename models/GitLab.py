@@ -1,4 +1,3 @@
-from typing import Type
 import pandas as pd
 import numpy as np
 import requests
@@ -56,8 +55,8 @@ class GitLabDataServicer:
     def _get_commit_author(self, contributors, commit) -> str | None:
         pass
     
-    def _inv_val_format(self, df: Type[pd.DataFrame]):
-        df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA, inplace=True)
+    def _inv_val_format(self, df: pd.DataFrame):
+        df = df.replace(['', 'None', 'nan', 'NaN', np.nan, None], pd.NA)
 
     def _format_commit_data(self, df : pd.DataFrame) -> pd.DataFrame:
         pass
@@ -72,5 +71,5 @@ class GitLabDataServicer:
     def _make_api_call(self, header, url) -> requests.Response:
         return requests.get(url, headers=header)
     
-    def import_commit_data(self, repo, since=None) -> pd.DataFrame:
+    def import_commit_data(self, repo, owner, since=None) -> pd.DataFrame:
         pass

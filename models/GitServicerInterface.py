@@ -12,11 +12,9 @@ class GitServicer:
         self.servicers : dict[str:GitHubDataServicer|GitLabDataServicer] = dict()
 
     def init_git_servicer(self, host, nickname, token) -> bool:
-        print(host, nickname, token)
         match host:
             case 'GitHub':
                 self.servicers[nickname] = GitHubDataServicer(token)
-                print(self.servicers)
                 return self.ready_for_api_calls(nickname)
             case 'GitLab':
                 self.servicers[nickname] = GitLabDataServicer(token)
@@ -51,6 +49,7 @@ class GitServicer:
         servicer : GitHubDataServicer | GitLabDataServicer = self.servicers[nickname]
         return servicer.get_contributors(repo)
     
-    def import_commit_data(self, nickname, repo, since=None) -> pd.DataFrame:
+    def import_commit_data(self, nickname, repo, since=None):
         servicer : GitHubDataServicer | GitLabDataServicer = self.servicers[nickname]
-        return servicer.import_commit_data(repo, since)
+        for res, data in servicer.import_commit_data(repo, since):
+            yield res, data

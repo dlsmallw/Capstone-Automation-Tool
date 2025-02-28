@@ -31,14 +31,14 @@ class Application():
 
         self.tabControl = ttk.Notebook(self.root)
         self.home_tab = HomeFrame.HomeFrame(self.tabControl)
-        self.taiga_tab = TaigaFrame.TaigaFrame(self.tabControl, dc)
-        self.git_tab = GitFrame.GitFrame(self.tabControl, dc)
-        # self.reports_tab = ReportsFrame.ReportsFrame(self.tabControl, self, dc)
+        self.git_tab = GitFrame.GitFrame(self.tabControl, dc, self)
+        self.taiga_tab = TaigaFrame.TaigaFrame(self.tabControl, dc, self)
+        self.reports_tab = ReportsFrame.ReportsFrame(self.tabControl, self, dc)
 
         self.tabControl.add(self.home_tab, text='Home')
         self.tabControl.add(self.taiga_tab, text='Taiga')
         self.tabControl.add(self.git_tab, text='Git')
-        # self.tabControl.add(self.reports_tab, text='Reports')
+        self.tabControl.add(self.reports_tab, text='Reports')
         self.tabControl.pack(expand = 1, fill ="both") 
 
         self.tabControl.bind('<<NotebookTabChanged>>', self.tab_change)
@@ -49,6 +49,16 @@ class Application():
 
         self.root.mainloop()
 
+    def get_root_coords(self):
+        self.root.update_idletasks()
+        root_x = self.root.winfo_x()
+        root_y = self.root.winfo_y()
+        root_w = self.root.winfo_width()
+        root_h = self.root.winfo_height()
+        center_x = root_x + int(root_w / 2)
+        center_y = root_y + int(root_h / 2)
+        return center_x, center_y
+
     def close(self):
         self.root.quit()
 
@@ -57,26 +67,25 @@ class Application():
         self.root.after(1000,self.refresh)
 
     def tab_change(self, event):
-        # self.prev_tab = self.curr_tab
-        # self.curr_tab = event.widget.tab('current')['text']
-        
-        # if self.curr_tab == 'Reports':
-        #     self.reports_tab.update_valid_options()
-        # elif self.prev_tab == 'Reports':
-        #     self.reports_tab.reset_tab()
-        pass
+        self.prev_tab = self.curr_tab
+        self.curr_tab = event.widget.tab('current')['text']
+        if self.curr_tab == 'Reports':
+            self.reports_tab.reset_tab()
+
+    def update_to_taiga_data(self):
+        self.git_tab.update_to_taiga_data()
 
     def taiga_data_ready(self) -> bool:
         return self.taiga_tab.taiga_data_ready()
     
     def get_taiga_data(self):
-        return self.taiga_tab.get_taiga_df()
+        return self.taiga_tab.get_taiga_data()
     
-    def gh_data_ready(self) -> bool:
-        return self.git_tab.gh_data_ready()
+    def commit_data_ready(self) -> bool:
+        return self.git_tab.commit_data_ready()
     
-    def get_gh_data(self):
-        return self.git_tab.get_gh_df()
+    def get_commit_data(self):
+        return self.git_tab.get_commit_data()
     
     def get_taiga_members(self) -> list:
         return self.taiga_tab.get_members()
