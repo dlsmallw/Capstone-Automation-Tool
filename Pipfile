@@ -16,6 +16,7 @@ pyinstaller = "*"
 pygithub = "*"
 ttkthemes = "*"
 sv-ttk = "*"
+shortuuid = "*"
 
 [dev-packages]
 
