@@ -743,8 +743,8 @@ class DataFrame(ttk.Frame):
             padx = 3
             sticky = 'nsew'
 
-            sprint_options = ['None', 'Not Assigned'] + self.sprints
-            completion_options = ['None', 'Complete', 'In Process']
+            sprint_options = ['ALL', 'Not Assigned'] + self.sprints
+            completion_options = ['ALL', 'Complete', 'In Process']
 
             sprint_select_strvar = StringVar()
             completion_select_strvar = StringVar()
@@ -753,8 +753,8 @@ class DataFrame(ttk.Frame):
                 sprint = sprint_select_strvar.get()
                 compl = completion_select_strvar.get()
 
-                sprint_filter = sprint != 'None'
-                completion_filter = compl != 'None'
+                sprint_filter = sprint != 'ALL'
+                completion_filter = compl != 'ALL'
 
                 if sprint_filter or completion_filter:
                     rows = []
@@ -804,9 +804,9 @@ class DataFrame(ttk.Frame):
                 complete_filter_frame = ttk.Frame(options_frame)
         
                 filter_section_lbl = ttk.Label(options_frame, text='Filters:', font=('Arial', 11, 'bold'))
-                sprint_opt_sel = CustomComboBox(sprint_filter_frame, sprint_select_strvar, *sprint_options, comp_id='sprint')
+                sprint_opt_sel = CustomComboBox(sprint_filter_frame, sprint_select_strvar, *sprint_options, comp_id='sprint', default='ALL')
                 generate_field_obj(sprint_filter_frame, 'Sprint:', sprint_opt_sel)
-                completion_opt_sel = CustomComboBox(complete_filter_frame, completion_select_strvar, *completion_options, comp_id='completion')
+                completion_opt_sel = CustomComboBox(complete_filter_frame, completion_select_strvar, *completion_options, comp_id='completion', default='ALL')
                 generate_field_obj(complete_filter_frame, 'Complete:', completion_opt_sel)
                 self.us_clear_filters_btn = ttk.Button(options_frame, text='Clear Filters', state='disabled', command=clear_filters)
 
@@ -830,22 +830,9 @@ class DataFrame(ttk.Frame):
 
                 self.us_table_sheet = tks.Sheet(table_frame, data=df.values.tolist(), header=df.columns.tolist())
 
-                # column_widths = []
-                # index = 0
-                # total_width = 0
-                # for column in df.columns.tolist():
-                #     text_width = self.us_table_sheet.get_column_text_width(index)
-                #     # if column == 'task_subject':
-                #     #     text_width = 500
-
-                #     column_widths.append(text_width)
-                #     total_width += text_width
-                #     index += 1
-
                 column_widths = []
                 index = 0
-                max_tot_width = 960
-                remaining_width = max_tot_width
+                remaining_width = 960
                 curr_total = 0
                 for column in df.columns.tolist():
                     if column != 'us_subject':
@@ -887,9 +874,9 @@ class DataFrame(ttk.Frame):
             padx = 3
             sticky = 'nsew'
 
-            us_options = ['None','Storyless'] + self.user_stories
-            user_options = ['None' ,'Unassigned'] + self.members
-            coding_options = ['None', np.True_, np.False_]
+            us_options = ['ALL','Storyless'] + self.user_stories
+            user_options = ['ALL' ,'Unassigned'] + self.members
+            coding_options = ['ALL', np.True_, np.False_]
 
             us_select_strvar = StringVar()
             user_select_strvar = StringVar()
@@ -899,11 +886,11 @@ class DataFrame(ttk.Frame):
                 us = us_select_strvar.get()
                 user = user_select_strvar.get()
                 coding_val = coding_select_strvar.get()
-                coding = coding_val if coding_val == 'None' else eval(coding_val)
+                coding = coding_val if coding_val == 'ALL' else eval(coding_val)
 
-                us_filter = us != 'None'
-                user_filter = user != 'None'
-                coding_filter = coding != 'None'
+                us_filter = us != 'ALL'
+                user_filter = user != 'ALL'
+                coding_filter = coding != 'ALL'
 
                 if us_filter or user_filter or coding_filter:
                     rows = []
@@ -956,11 +943,11 @@ class DataFrame(ttk.Frame):
                 coding_filter_frame = ttk.Frame(options_frame)
         
                 filter_section_lbl = ttk.Label(options_frame, text='Filters:', font=('Arial', 11, 'bold'))
-                us_opt_sel = CustomComboBox(us_filter_frame, us_select_strvar, *us_options, comp_id='userstory')
+                us_opt_sel = CustomComboBox(us_filter_frame, us_select_strvar, *us_options, comp_id='userstory', default='ALL')
                 generate_field_obj(us_filter_frame, 'User Story:', us_opt_sel)
-                user_opt_sel = CustomComboBox(user_filter_frame, user_select_strvar, *user_options, comp_id='user')
+                user_opt_sel = CustomComboBox(user_filter_frame, user_select_strvar, *user_options, comp_id='user', default='ALL')
                 generate_field_obj(user_filter_frame, 'Assigned To:', user_opt_sel)
-                coding_opt_sel = CustomComboBox(coding_filter_frame, coding_select_strvar, *coding_options, comp_id='coding')
+                coding_opt_sel = CustomComboBox(coding_filter_frame, coding_select_strvar, *coding_options, comp_id='coding', default='ALL')
                 generate_field_obj(coding_filter_frame, 'Coding Task:', coding_opt_sel)
                 self.task_clear_filters_btn = ttk.Button(options_frame, text='Clear Filters', state='disabled', command=clear_filters)
 

@@ -473,14 +473,14 @@ class DataController:
 
                 curr_df_copy = pd.concat([curr_df_copy, new_df_copy]).drop_duplicates([col_to_index], keep='first')
 
-                curr_df_copy.set_index(col_to_index, inplace=True)
-                new_df_copy.set_index(col_to_index, inplace=True)
+                curr_df_copy = curr_df_copy.set_index(col_to_index)
+                new_df_copy = new_df_copy.set_index(col_to_index)
 
                 if cols is not None:
                     curr_df_copy.update(new_df_copy[cols])
                 else:
                     curr_df_copy.update(new_df_copy)
-                curr_df_copy.reset_index(inplace=True)
+                curr_df_copy = curr_df_copy.reset_index()
                 return curr_df_copy
             else:
                 curr_df = new_df
@@ -497,9 +497,9 @@ class DataController:
             self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
             
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
-            df.sort_values(by='id', ascending=True, inplace=True)
+            df = df.sort_values(by='id', ascending=True)
             return df
 
         if new_df is not None and len(new_df) > 0:
@@ -519,9 +519,9 @@ class DataController:
             df['sprint_start'] = pd.to_datetime(df['sprint_start'])
             df['sprint_end'] = pd.to_datetime(df['sprint_end'])
             
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
-            df.sort_values(by='sprint_start', ascending=True, inplace=True)
+            df = df.sort_values(by='sprint_start', ascending=True)
             return df
 
         if new_df is not None and len(new_df) > 0:
@@ -535,9 +535,9 @@ class DataController:
             self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
             
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['username'], keep='first').reset_index(drop=True)
-            df.sort_values(by='id', ascending=True, inplace=True)
+            df = df.sort_values(by='id', ascending=True)
             return df
         
         if new_df is not None and len(new_df) > 0:
@@ -554,9 +554,9 @@ class DataController:
             df['is_complete'] = df['is_complete'].astype(pd.BooleanDtype())
             df['points'] = df['points'].replace(pd.NA, 0)
             
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
-            df.sort_values(by=['sprint', 'us_num'], ascending=True, na_position='last', inplace=True)
+            df = df.sort_values(by=['sprint', 'us_num'], ascending=True, na_position='last')
             return df
         
         if new_df is not None and len(new_df) > 0:
@@ -575,9 +575,9 @@ class DataController:
             df['is_complete'] = df['is_complete'].astype(pd.BooleanDtype())
 
             self._inv_val_format(df)
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
-            df.sort_values(by=['us_num', 'task_num'], ascending=[True, True], inplace=True)
+            df = df.sort_values(by=['sprint', 'us_num', 'task_num'], ascending=True)
             return df
         
         if new_df is not None and len(new_df) > 0:
@@ -652,9 +652,9 @@ class DataController:
             df['task_num'] = df['task_num'].astype(pd.Int64Dtype())
             df['utc_datetime'] = pd.to_datetime(df['utc_datetime'])
 
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['id', 'repo_name'], keep='first').reset_index(drop=True)
-            df.sort_values(by='utc_datetime', ascending=True, inplace=True)
+            df = df.sort_values(by='utc_datetime', ascending=True)
             return df
 
         if new_df is not None and len(new_df) > 0:
@@ -668,9 +668,9 @@ class DataController:
             self._inv_val_format(df)
             df['id'] = df['id'].astype(pd.Int64Dtype())
 
-            df.dropna(inplace=True, how='all')
+            df = df.dropna(how='all')
             df = df.drop_duplicates(subset=['id', 'site_nickname'], keep='first').reset_index(drop=True)
-            df.sort_values(by=['site_nickname'], ascending=True, inplace=True)
+            df = df.sort_values(by=['site_nickname'], ascending=True)
             return df
 
         if new_df is not None and len(new_df) > 0:
@@ -831,7 +831,6 @@ class DataController:
     
     def format_icr_df_non_excel(self, commit_df: pd.DataFrame, taiga_df: pd.DataFrame = None) -> pd.DataFrame:
         commit_df = commit_df.sort_values(by='utc_datetime', ascending=True)
-
         base_url = self._get_taiga_base_url()
 
         data_columns = ['Committer', 'Link to Task', 'Task #', 'Task Status', 'Coding Task?', 'Link to Commit', 'Commit Date', 'Percent Contributed']
@@ -842,15 +841,16 @@ class DataController:
             task_num = row['task_num']
             if not pd.isna(task_num):
                 task_url = f'{base_url}{int(task_num)}' if base_url is not None else None
-                task = int(task_num) 
+                task = task_num
                 is_complete = taiga_df.loc[taiga_df['task_num'] == task_num, 'is_complete'].iloc[0] if taiga_df is not None else None
                 task_status = 'Complete' if is_complete else 'In-Process' if taiga_df is not None else None
-                coding = taiga_df.loc[taiga_df['task_num'] == task_num, 'is_coding'].iloc[0] if taiga_df is not None else None
+                coding_val = taiga_df.loc[taiga_df['task_num'] == task_num, 'is_coding'].iloc[0]
+                coding = 'TRUE' if coding_val else 'FALSE' if coding_val is not None else pd.NA
             else:
-                task_url = None
-                task = None
-                coding = None
-                task_status = None
+                task_url = pd.NA
+                task = pd.NA
+                coding = pd.NA
+                task_status = pd.NA
 
             commit_url = row['commit_url']
             commit_date = row['az_date']
@@ -859,6 +859,9 @@ class DataController:
             data[index] = row_data
             
         result_df = pd.DataFrame(data, columns=data_columns)
+        result_df['Task #'] = result_df['Task #'].astype(pd.Int64Dtype())
+        result_df = result_df.astype(pd.StringDtype())
+        result_df = result_df.replace(pd.NA, '')
         return result_df
     
     def format_icr_excel(self, df: pd.DataFrame):

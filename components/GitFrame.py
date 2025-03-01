@@ -663,9 +663,9 @@ class DataFrame(ttk.Frame):
             padx = 3
             sticky = 'nsew'
 
-            repo_options = ['None'] + self.repos
-            task_options = ['None', 'Not Set'] + self.curr_commits_df['task_num'].sort_values(ascending=True).dropna().drop_duplicates().tolist()
-            committer_options = ['None'] + self.members
+            repo_options = ['ALL'] + self.repos
+            task_options = ['ALL', 'Not Set'] + self.curr_commits_df['task_num'].sort_values(ascending=True).dropna().drop_duplicates().tolist()
+            committer_options = ['ALL'] + self.members
 
             repo_strvar = StringVar()
             task_strvar = StringVar()
@@ -679,9 +679,9 @@ class DataFrame(ttk.Frame):
                 start_date = self.start_date_filter.get_date_val()
                 end_date = self.end_date_filter.get_date_val()
 
-                repo_filtered = repo != 'None'
-                task_filtered = task != 'None'
-                committer_filtered = committer != 'None'
+                repo_filtered = repo != 'ALL'
+                task_filtered = task != 'ALL'
+                committer_filtered = committer != 'ALL'
                 start_date_filtered = self.start_date_filter.date_selected()
                 end_date_filtered = self.end_date_filter.date_selected()
 
@@ -755,11 +755,11 @@ class DataFrame(ttk.Frame):
                 btn_frame = ttk.Frame(options_frame)
         
                 filter_section_lbl = ttk.Label(options_frame, text='Filters:', font=('Arial', 11, 'bold'))
-                repo_opt_sel = CustomComboBox(repo_filter_frame, repo_strvar, *repo_options, comp_id='repo')
+                repo_opt_sel = CustomComboBox(repo_filter_frame, repo_strvar, *repo_options, comp_id='repo', default='ALL')
                 generate_field_obj(repo_filter_frame, 'Repo:', repo_opt_sel)
-                task_opt_sel = CustomComboBox(task_filter_frame, task_strvar, *task_options, comp_id='git_task')
+                task_opt_sel = CustomComboBox(task_filter_frame, task_strvar, *task_options, comp_id='git_task', default='ALL')
                 generate_field_obj(task_filter_frame, 'Task:', task_opt_sel)
-                committer_opt_sel = CustomComboBox(committer_filter_frame, committer_strvar, *committer_options, comp_id='committer')
+                committer_opt_sel = CustomComboBox(committer_filter_frame, committer_strvar, *committer_options, comp_id='committer', default='ALL')
                 generate_field_obj(committer_filter_frame, 'Committer:', committer_opt_sel)
                 self.start_date_filter = CustomDateEntry(start_date_filter_frame)
                 generate_field_obj(start_date_filter_frame, 'After:', self.start_date_filter)

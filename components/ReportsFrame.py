@@ -170,7 +170,7 @@ class ConfigFrame(ttk.Frame):
             self.mtr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Master Taiga Report', value='mtr', command=self.option_selected)
             self.mgr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Master GitHub Report', value='mgr', command=self.option_selected)
             self.wsr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Work Summary Report', value='wsr', command=self.option_selected)
-            self.icr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='Contributions Report', value='icr', command=self.option_selected)
+            self.icr_rad_btn = ttk.Radiobutton(type_sel_frame, variable=self.sel_rb, text='IC Report', value='icr', command=self.option_selected)
 
             options_lbl.grid(row=0, column=0, padx=(0, 10), sticky='nsew')
             self.mtr_rad_btn.grid(row=0, column=1, padx=5, sticky='nsew')

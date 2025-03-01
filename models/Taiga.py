@@ -160,7 +160,7 @@ class TaigaDataServicer:
     def _format_task_df(self, tasks_df : pd.DataFrame) -> pd.DataFrame:
         if tasks_df is not None:
             tasks_df = tasks_df.set_axis(['id', 'task_num', 'us_num', 'sprint', 'is_complete', 'assignee', 'task_subject'], axis=1)
-            tasks_df.insert(3, 'is_coding', False)
+            tasks_df.insert(4, 'is_coding', False)
         return tasks_df
 
     def _inv_val_to_none(self, df: pd.DataFrame):
@@ -215,13 +215,11 @@ class TaigaDataServicer:
             res = import_data(f'{self.base_url}/userstories?project={project_id}')
             if res.status_code == 200:
                 raw_us_df = pd.json_normalize(res.json())
-                print(raw_us_df.columns)
                 return self._format_us_df(raw_us_df[['id', 'ref', 'is_closed', 'milestone_name', 'total_points', 'subject']])
             return None
             
         def import_task_data(member_df : pd.DataFrame, us_df : pd.DataFrame, sprint_dict: dict) -> pd.DataFrame:
             res = import_data(f'{self.base_url}/tasks?project={project_id}')
-            print(sprint_dict)
             if res.status_code == 200:
                 raw_task_df = pd.json_normalize(res.json())
                 
