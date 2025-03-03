@@ -91,7 +91,11 @@ class GitHubDataServicer:
         return contributor_list
     
     def _get_commit_author(self, contributors, commit) -> str | None:
-        author_name = commit["author"]["login"]
+        try:
+            author_name = commit["author"]["login"]
+        except:
+            author_name = None
+            
         author_email = commit["commit"]["author"]["email"]
 
         committer = None

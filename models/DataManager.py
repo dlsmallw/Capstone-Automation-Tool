@@ -226,10 +226,12 @@ class DataController:
         return res, msg
     
     def remove_git_acct(self, nickname):
+        print(f'Deleting acct {nickname}')
         self.gs.remove_servicer(nickname)
         self.git_accts.pop(nickname)
+        self.repos = self.repos[self.repos['site_nickname'] != nickname]
         self.db.delete('sites', conditions={'nickname': nickname})
-        self.db.delete('repos', conditions={'site_nickname': nickname} )
+        self.db.delete('repos', conditions={'site_nickname': nickname})
     
     def get_git_accts(self):
         accts = []

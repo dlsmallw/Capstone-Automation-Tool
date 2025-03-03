@@ -620,6 +620,8 @@ class DataFrame(ttk.Frame):
     def commits_df_to_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
         df_copy = df.copy(deep=True)
         self._inv_val_format(df_copy)
+        df_copy['committer'] = df_copy['committer'].astype(pd.StringDtype())
+        df_copy['committer'] = df_copy['committer'].replace(pd.NA, 'Unknown')
         df_copy['task_num'] = df_copy['task_num'].astype(pd.StringDtype())
         df_copy['task_num'] = df_copy['task_num'].replace(pd.NA, 'Not Set')
         return df_copy
@@ -627,6 +629,7 @@ class DataFrame(ttk.Frame):
     def commits_df_from_table_format(self, df : pd.DataFrame) -> pd.DataFrame:
         df_copy = df.copy(deep=True)
         self._inv_val_format(df_copy)
+        df_copy['committer'] = df_copy['committer'].replace('Unknown', pd.NA)
         df_copy['task_num'] = df_copy['task_num'].replace('Not Set', pd.NA)
         df_copy['task_num'] = df_copy['task_num'].astype(pd.Int64Dtype())
         return df_copy
@@ -665,8 +668,12 @@ class DataFrame(ttk.Frame):
 
             repo_options = ['ALL'] + self.repos
             task_options = ['ALL', 'Not Set'] + self.curr_commits_df['task_num'].sort_values(ascending=True).dropna().drop_duplicates().tolist()
-            committer_options = ['ALL'] + self.members
 
+            committer_options = ['ALL']
+            if self.commits_df_master['committer'].isna().any():
+                committer_options.append('Unknown')
+            committer_options += self.members
+            
             repo_strvar = StringVar()
             task_strvar = StringVar()
             committer_strvar = StringVar()
