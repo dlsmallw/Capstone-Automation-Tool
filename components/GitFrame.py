@@ -172,18 +172,18 @@ class ConfigFrame(ttk.Frame):
                             if not self.dc.check_if_nickname_exists(nickname):
                                 break
 
-                        res, msg = self.dc.add_git_acct(site, nickname, token)
-                        if res == 'Success':
-                            th = threading.Thread(target=lambda: wait_for_repos(nickname), daemon=True)
-                            th.start()
+                    res, msg = self.dc.add_git_acct(site, nickname, token)
+                    if res == 'Success':
+                        th = threading.Thread(target=lambda: wait_for_repos(nickname), daemon=True)
+                        th.start()
 
-                            if threading.current_thread != th:
-                                accts_tview_table.insert("", 'end', values=(site, nickname, msg, "Ready to make API calls"))
-                                update_ui_state()
-                                messagebox.showinfo(message='Added new account')
-                                prompt_window.destroy()
-                        else:
-                            messagebox.showerror("Error", msg)
+                        if threading.current_thread != th:
+                            accts_tview_table.insert("", 'end', values=(site, nickname, msg, "Ready to make API calls"))
+                            update_ui_state()
+                            messagebox.showinfo(message='Added new account')
+                            prompt_window.destroy()
+                    else:
+                        messagebox.showerror("Error", msg)
 
                 width = 350
                 height = 200
