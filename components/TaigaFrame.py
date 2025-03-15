@@ -626,9 +626,19 @@ class DataFrame(ttk.Frame):
         else:
             self.update_sheets()
 
+    def build_dropdowns(self, df=None):
+        if df is None:
+            df = self.curr_tasks_df
+
+        self.tasks_table_sheet.create_dropdown('all', 4, values=[np.True_, np.False_])
+        for row, value in enumerate(df['is_coding']):
+            self.tasks_table_sheet.set_cell_data(row, 4, value)
+
     def update_sheets(self):
         self.us_table_sheet.set_data(data=self.us_df_to_table_format(self.curr_us_df).values.tolist(), redraw=True)
         self.tasks_table_sheet.set_data(data=self.tasks_df_to_table_format(self.curr_tasks_df).values.tolist(), redraw=True)
+        self.build_dropdowns()
+        
 
     def save_data(self):
         self.dc.update_us_df(self.curr_us_df)
@@ -899,9 +909,9 @@ class DataFrame(ttk.Frame):
 
                         if us_filter and row[2] != us:
                             row_match = False
-                        if user_filter and row[5] != user:
+                        if user_filter and row[6] != user:
                             row_match = False
-                        if coding_filter and row[3] != coding:
+                        if coding_filter and row[4] != coding:
                             row_match = False
 
                         if row_match:
@@ -972,9 +982,7 @@ class DataFrame(ttk.Frame):
                 cols = len(df.columns)
 
                 self.tasks_table_sheet = tks.Sheet(table_frame, data=df.values.tolist(), header=df.columns.tolist())
-                self.tasks_table_sheet.create_dropdown('all', 3, values=[np.True_, np.False_])
-                for row, value in enumerate(df['is_coding']):
-                    self.tasks_table_sheet.set_cell_data(row, 3, value)
+                self.build_dropdowns(df)
 
                 column_widths = []
                 index = 0
@@ -997,7 +1005,7 @@ class DataFrame(ttk.Frame):
                 self.tasks_table_sheet.enable_bindings()
                 self.tasks_table_sheet.extra_bindings("end_edit_cell", task_table_change)  # Call function after edit
                 self.tasks_table_sheet.disable_bindings('move_columns', 'move_rows', 'rc_insert_column', 'rc_delete_column')
-                self.tasks_table_sheet.readonly_columns(columns=[0, 1, 2, 4, 5, 6])
+                self.tasks_table_sheet.readonly_columns(columns=[0, 1, 2, 3, 5, 6])
                 self.tasks_table_sheet.pack(fill='both', expand=True, pady=(0, 5))
 
                 self.tasks_table_sheet.set_sheet_data_and_display_dimensions(total_rows=rows, total_columns=cols)

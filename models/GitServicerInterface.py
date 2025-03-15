@@ -47,9 +47,9 @@ class GitServicer:
     
     def get_contributors(self, nickname, repo) -> list[str]:
         servicer : GitHubDataServicer | GitLabDataServicer = self.servicers[nickname]
-        return servicer.get_contributors(repo)
+        return servicer._get_contributors(repo)
     
-    def import_commit_data(self, nickname, repo, since=None):
+    def import_commit_data(self, nickname, repo, repo_id=None, since=None):
         servicer : GitHubDataServicer | GitLabDataServicer = self.servicers[nickname]
-        for res, data in servicer.import_commit_data(repo, since):
+        for res, data in servicer.import_commit_data(repo, repo_id, since):
             yield res, data

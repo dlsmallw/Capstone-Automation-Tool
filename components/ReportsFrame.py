@@ -1,9 +1,11 @@
-from tkinter import ttk, filedialog, StringVar, messagebox
 import tkinter as tk
 import tksheet as tks
 import pandas as pd
 import numpy as np
 import os
+
+from tksheet import Span
+from tkinter import ttk, filedialog, StringVar, messagebox
 
 from models.DataManager import DataController
 from components.CustomComponents import CustomDateEntry, CustomComboBox
@@ -45,11 +47,12 @@ class ReportsFrame(ttk.Frame):
             match ext:
                 case '.xlsx':
                     self.dc.write_to_excel(filepath, df)
+                    return ['Success']
                 case '.csv':
                     self.dc.write_to_csv(filepath, df)
+                    return ['Success']
                 case _:
-                    return
-            messagebox.showinfo(message='Report Exported!')
+                    return ['Error', 'Invalid extension type.']
                 
     def export_report(self, df, report_type):
         has_hyperlinks = False
@@ -64,9 +67,22 @@ class ReportsFrame(ttk.Frame):
             has_hyperlinks = True
             filepath = self.save_file_prompt('Individual_Contributions_Report')
 
-        self.handle_ext_type(filepath, df)
+        res = self.handle_ext_type(filepath, df)
+
+        if res[0] == 'Error':
+            messagebox.showerror(message=res[1])
+            return
+
         if has_hyperlinks:
-            self.dc.convert_hyperlinks(filepath)
+            res = self.dc.format_spreadsheet(filepath)
+
+            if res[0] == 'Error':
+                messagebox.showerror(message=res[1])
+                return
+            
+        messagebox.showinfo(message='Export Successfully Exported!')
+
+
         
     def save_file_prompt(self, filename):
         files = [('Excel Workbook', '*.xlsx'),
@@ -286,29 +302,38 @@ class DataFrame(ttk.Frame):
         table_frame = ttk.Frame(self.data_display)
         temp_sheet = tks.Sheet(table_frame, data=df.values.tolist(), header=df.columns.tolist())
 
-        column_widths = []
+        column_widths_dict = dict()
         remaining_width = 960
         curr_total = 0
+        col_dict = dict()
         for idx, column in enumerate(df.columns.tolist()):
             if column not in lower_priority_cols:
                 text_width = temp_sheet.get_column_text_width(idx)
+                column_widths_dict[idx] = text_width
             else:
-                text_width = remaining_width
-            
+                text_width = 0
             curr_total += text_width
             remaining_width -= text_width               
-            column_widths.append(text_width)
+            
+        column_widths = []
+        lp_col_width = int(remaining_width / 2) - 5
+        for i in range(0, len(df.columns)):
+            width = column_widths_dict.get(i)
+            column_widths.append(width if width is not None else lp_col_width)
 
         ## This is the only reasonable way to pre-calculate the approximate width of the table and then use the width
         table_frame.destroy()
         table_frame = ttk.Frame(self.data_display, width=int(curr_total * 1.1))
         self.report_sheet = tks.Sheet(table_frame, width=int(curr_total * 1.1), data=df.values.tolist(), header=df.columns.tolist())
+        self.report_sheet.enable_bindings()
+        self.report_sheet.disable_bindings('move_columns', 'move_rows', 'edit_cell', 'rc_insert_column', 'rc_delete_column')
+        self.report_sheet.readonly_columns()
+        self.report_sheet.set_options(allow_cell_overflow=True)
 
         self.report_sheet.pack(fill='both', expand=True)
         self.report_sheet.hide_columns(cols_to_hide)
         self.report_sheet.set_sheet_data_and_display_dimensions(total_rows=len(df), total_columns=len(df.columns))
         self.report_sheet.set_column_widths(column_widths)
-        
         return table_frame
 
     def generate_field_obj(self, parent, lbl_str, target_obj):
@@ -741,10 +766,12 @@ class DataFrame(ttk.Frame):
         self.table_df = icr_df
 
         hdr_frame = self.build_header_frame('Contributions Report')
-        table_frame = self.build_table_frame(icr_df, cols_to_hide=[], lower_priority_cols=[])
+        table_frame = self.build_table_frame(icr_df, cols_to_hide=[], lower_priority_cols=['Link to Task', 'Link to Commit'])
+        self.report_sheet['B'].align('e', redraw=True)
+        self.report_sheet['F'].align('e', redraw=True)
 
         hdr_frame.pack(fill ='x') 
-        table_frame.pack(fill='y', expand=True)
+        table_frame.pack(fill='both', expand=True)
         self.data_display.pack(fill='both', expand=True)
 
     def build_data_display(self, report_type):

@@ -5,6 +5,7 @@ import openpyxl as opyxl
 import pandas as pd
 import numpy as np
 from typing import Type
+from openpyxl import styles
 from models.Taiga import TaigaDataServicer
 from models.GitServicerInterface import GitServicer
 from models.database.RecordDatabase import RecDB
@@ -73,7 +74,7 @@ class DataController:
                 row = projects.loc[projects['is_selected'] == 1].values[0]
 
                 if len(row) > 0:
-                    self._set_linked_taiga_project(row[0], row[1], row[2], row[4])
+                    self._set_linked_taiga_project(row[0], row[1], row[2], row[3])
 
         def load_saved_taiga_data():
             self._update_sprints_df(self.db.table_to_df('sprints'))
@@ -148,22 +149,26 @@ class DataController:
             return base_url, header
         
         def gl_request(token):
-            base_url = None
-            header = None
+            base_url = 'https://gitlab.com/api/v4/user'
+            header = {
+                'PRIVATE-TOKEN': f'{token}'
+            }
 
             return base_url, header
 
         if site == GITHUB:
             url, headers = gh_request(token)
+            login_key = 'login'
         else:
             url, headers = gl_request(token)
+            login_key = 'username'
 
         try:
             res = requests.get(url=url, headers=headers)
             sc = res.status_code
 
             if sc >= 200 and sc <= 200:
-                return 'Success', res.json()['login']
+                return 'Success', res.json()[login_key]
             else:
                 return 'Error', f'{sc} - [{hc.responses[sc]}]'
         except Exception as e:
@@ -421,7 +426,7 @@ class DataController:
         repos = []
         if self.repos is not None:
             repos_df = self.repos.loc[self.repos['is_linked'] == 0]
-            for index, row in repos_df.iterrows():
+            for _, row in repos_df.iterrows():
                 repos.append([row['site_nickname'], row['repo_name']])
         return repos
     
@@ -429,13 +434,13 @@ class DataController:
         linked = []
         if self.repos is not None:
             linked_df = self.repos.loc[self.repos['is_linked'] == 1]
-            for index, row in linked_df.iterrows():
+            for _, row in linked_df.iterrows():
                 linked.append([row['site_nickname'], row['repo_name']])
         return linked
     
     def clear_commit_data(self):
         self.commits_df = None
-        for _, repo in self.get_linked_repos():
+        for repo in self.repos['repo_name'].tolist():
             self._update_latest_commit_date(repo, None)
         self.db.clear_table('commits')
 
@@ -444,22 +449,25 @@ class DataController:
 
     def import_commit_data(self):
         linked_df = self.repos.loc[self.repos['is_linked'] == 1]
-        for index, row in linked_df.iterrows():
+        for _, row in linked_df.iterrows():
             nname = row['site_nickname']
             repo = row['repo_name']
+            repo_id = row['id']
             latest_dt = row['last_commit_dt']
             if pd.isna(latest_dt):
                 latest_dt = None
 
-            for res, data in self.gs.import_commit_data(nname, repo, latest_dt):
+            for res, data in self.gs.import_commit_data(nname, repo, repo_id, latest_dt):
                 if res == 'In Progress':
-                    yield res, [nname, repo, data]
+                    yield res, f'[{nname}] {data}'
                 elif res == 'Complete':
-                    latest_commit_date = data['utc_datetime'].max()
-                    latest_commit_str = latest_commit_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-                    self._update_latest_commit_date(repo, latest_commit_str)
-                    self.update_commit_df(data)
-                    yield res, [nname, repo]
+                    df = data[1]
+                    if df is not None and len(df) > 0:
+                        self.update_commit_df(df)
+                        latest_commit_date = df['utc_datetime'].max()
+                        latest_commit_str = latest_commit_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+                        self._update_latest_commit_date(repo, latest_commit_str)
+                    yield res, f'[{nname}] {data[0]}'
     
     ## Data Manipulation
     ##=============================================================================
@@ -736,18 +744,36 @@ class DataController:
     
     ## Data retrieval/setting
     ##=============================================================================
-    
-    def convert_hyperlinks(self, filepath):
+
+    def format_spreadsheet(self, filepath):
         if not os.path.exists(filepath):
-            return
-        
+            return ['Error', 'File does not exist.']
+    
         try:
             wb = opyxl.load_workbook(filepath)
-            for sheet in wb.worksheets:  # Iterate over all sheets
-                for row in sheet.iter_rows():
-                    for cell in row:
-                        if isinstance(cell.value, str) and cell.value.startswith('=HYPERLINK('):
-                            try:
+            for sheet in wb.worksheets:
+                col_dims = dict()
+                colidx_range = [i for i in range(sheet.min_column, sheet.max_column + 1)]
+                for colidx in colidx_range:
+                    column = sheet.cell(1, colidx).column_letter
+                    link_col = False
+                    date_col = False
+                    int_col = False
+
+                    header = sheet.cell(1, colidx).value
+                    if 'link' in header.lower():
+                        link_col = True
+                    elif 'date' in header.lower():
+                        date_col = True
+                    elif header in ['Task #', 'User Story', 'Points']:
+                        int_col = True
+
+                    col_dims[column] = len(str(header))
+                    for i in range(2, sheet.max_row + 1):
+                        cell = sheet.cell(i, colidx)
+
+                        try:
+                            if link_col or isinstance(cell.value, str) and cell.value.startswith('=HYPERLINK('):
                                 # Extract URL from the formula
                                 url_start = cell.value.find('"') + 1
                                 url_end = cell.value.find('"', url_start)
@@ -762,38 +788,73 @@ class DataController:
                                     # Set the hyperlink in the cell
                                     cell.value = friendly_text  # Display text
                                     cell.hyperlink = url  # Set hyperlink
-                                    cell.style = "Hyperlink"  # Apply Excel hyperlink style
+                                    cell.font = styles.Font(underline='single', color='0000FF') # Apply Excel hyperlink style 
+                                    cell_text = friendly_text
+                            elif date_col:
+                                date = pd.to_datetime(cell.value)
+                                cell.value = date
+                                cell.number_format = 'm/d/yyyy'
+                                cell_text = str(cell.value)
+                            elif int_col:
+                                cell.value = int(cell.value)
+                                cell.number_format = styles.numbers.FORMAT_NUMBER
+                                cell_text = str(cell.value)
+                            else:
+                                cell_text = str(cell.value)
+                        except:
+                            cell_text = ''
 
-                            except Exception as e:
-                                print(f"Error processing cell {cell.coordinate}: {e}")
-                # Save changes
-                wb.save(filepath)
-        except:
-            pass
+                        col_dims[column] = max(col_dims.get(column), len(str(cell_text)))
+                for col, val in col_dims.items():
+                    sheet.column_dimensions[col].width = val + 5
+
+            wb.save(filepath)
+            return ['Success']
+
+        except Exception as e:
+            print(f'Failed to format spreadsheet - {e}')
+            return ['Error', str(e)]
     
     ## Data Formatting for Reports
     ##=============================================================================
     
     def _generate_hyperlink(self, url, text):
-        return f'=HYPERLINK("{url}", "{text}")' if url is not None else None
+        return f'=HYPERLINK("{url}", "{text}")' if pd.notna(url) else pd.NA
     
-    def _generate_task_excel_entry(self, base_url, task_num, text_to_use=None):
-        if task_num is not None:
-            if text_to_use is not None:
-                text = text_to_use
+    def _generate_task_excel_entry(self, task_num, url=None, preceding_text=None):
+        if pd.notna(task_num):
+            taiga_tasks = []
+
+            if self.taiga_data_ready():
+                taiga_tasks = self.tasks_df['task_num'].tolist()
+
+            try:
+                task_num = int(task_num)
+            except:
+                pass
+
+            if task_num in taiga_tasks:
+                if preceding_text is not None:
+                    text = f'{preceding_text} Task-{task_num}'
+                else:
+                    text = f'Task-{task_num}'
+
+                if url is None or url == '':
+                    url = f'{self._get_taiga_base_url()}{task_num}'
+                text = self._generate_hyperlink(url, text)      
             else:
-                text = f'Task-{task_num}'
-            if base_url is not None and base_url != '':
-                url = f'{base_url}{task_num}'
-                return self._generate_hyperlink(url, text)      
+                text = f'Task-{task_num} (No Link)'
+
             return text
-        return None
+        return pd.NA
     
     def _generate_us_entry(self, us_num):
         if us_num == 'Storyless' or pd.isna(us_num):
             return 'Storyless'
         else:
             return f'US-{us_num}'
+        
+    
     
     def format_wsr_non_excel(self, df: pd.DataFrame):
         members = df['assignee'].dropna().drop_duplicates().tolist()
@@ -826,14 +887,12 @@ class DataController:
         return result_df
     
     def format_wsr_excel(self, df: pd.DataFrame):
-        base_url = self._get_taiga_base_url()
-        df['Task'] = df['Task'].apply(lambda x: self._generate_task_excel_entry(base_url, x))
+        df['Task'] = df['Task'].apply(lambda x: self._generate_task_excel_entry(x))
         df['User Story'] = df['User Story'].apply(lambda x: self._generate_us_entry(x))
         return df
     
     def format_icr_df_non_excel(self, commit_df: pd.DataFrame, taiga_df: pd.DataFrame = None) -> pd.DataFrame:
         commit_df = commit_df.sort_values(by='utc_datetime', ascending=True)
-        base_url = self._get_taiga_base_url()
 
         data_columns = ['Committer', 'Link to Task', 'Task #', 'Task Status', 'Coding Task?', 'Link to Commit', 'Commit Date', 'Percent Contributed']
         data = [None] * len(commit_df)
@@ -842,7 +901,7 @@ class DataController:
             committer = row['committer']
             task_num = row['task_num']
             if not pd.isna(task_num):
-                task_url = f'{base_url}{int(task_num)}' if base_url is not None else None
+                task_url = f'{self._get_taiga_base_url()}{int(task_num)}'
                 task = task_num
                 is_complete = taiga_df.loc[taiga_df['task_num'] == task_num, 'is_complete'].iloc[0] if taiga_df is not None else None
                 task_status = 'Complete' if is_complete else 'In-Process' if taiga_df is not None else None
@@ -866,7 +925,31 @@ class DataController:
         result_df = result_df.replace(pd.NA, '')
         return result_df
     
-    def format_icr_excel(self, df: pd.DataFrame):
-        df['Link to Task'] = df['Link to Task'].apply(lambda url: self._generate_hyperlink(url, 'Link to Taiga Task'))
-        df['Link to Commit'] = df['Link to Commit'].apply(lambda url: self._generate_hyperlink(url, 'Link to Git Commit'))
-        return df
+    def format_icr_excel(self, icr_df: pd.DataFrame):
+        def format_links(df: pd.DataFrame) -> pd.DataFrame:
+            task_commit_dict = dict()
+
+            for idx, row in df.iterrows():
+                commit_link_text = 'Link to Commit (No Linked Task)'
+
+                task_num = row['Task #']
+                task_url = row['Link to Task']
+                commit_url = row['Link to Commit']
+
+                if pd.notna(task_num):
+                    commit_count = task_commit_dict.get(task_num)
+                    if not commit_count:
+                        task_commit_dict[task_num] = 1
+                        commit_count = 1
+
+                    commit_link_text = f'Link to Task-{task_num} Commit #{commit_count}'
+                    task_commit_dict[task_num] += 1
+
+                task_hyperlink = self._generate_task_excel_entry(task_num=task_num, url=task_url, preceding_text='Link to')
+                commit_hyperlink = self._generate_hyperlink(commit_url, commit_link_text)
+
+                df.at[idx, 'Link to Task'] = task_hyperlink
+                df.at[idx, 'Link to Commit'] = commit_hyperlink
+
+        format_links(icr_df)
+        return icr_df

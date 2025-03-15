@@ -67,7 +67,7 @@ class HomeFrame(ttk.Frame):
         reports_panel = reports_panel(tabControl)
 
         tabControl.add(taiga_panel, text='Taiga Tab')
-        tabControl.add(git_panel, text='GitHub Tab')
+        tabControl.add(git_panel, text='Git Tab')
         tabControl.add(reports_panel, text='Reports Tab')
         how_to_use_lbl.pack(pady=(3, 0))
         tabControl.pack(expand = 1, fill ="both", padx=6) 

@@ -17,6 +17,7 @@ pygithub = "*"
 ttkthemes = "*"
 sv-ttk = "*"
 shortuuid = "*"
+python-gitlab = "*"
 
 [dev-packages]
 

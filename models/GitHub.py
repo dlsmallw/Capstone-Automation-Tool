@@ -126,7 +126,7 @@ class GitHubDataServicer:
     def _make_api_call(self, header, url) -> requests.Response:
         return requests.get(url, headers=header)
     
-    def import_commit_data(self, repo, since=None):
+    def import_commit_data(self, repo_name, repo_id=None, since=None):
         auth_header = self._get_auth_header()
         
         {
@@ -135,67 +135,76 @@ class GitHubDataServicer:
             'X-GitHub-Api-Version': '2022-11-28'
         }
     
-        repo_obj = self.get_repo_by_name(repo)
-
+        repo_obj = self.get_repo_by_name(repo_name)
         contributors = self._get_contributors(repo_obj)
         branch_dict = self._get_repo_branches(repo_obj)
 
         base_url = repo_obj.url
-        all_data = pd.DataFrame(data=[], columns=['id', 'repo_name', 'task_num', 'committer', 'az_date', 'utc_datetime', 'commit_message', 'commit_url'])
-        commit_ids = []
-
         since_param = f'since={since}&' if since is not None else ''
 
+        commit_ids = []
+        commits_json = []
+        commits = []
+        
         for branch in branch_dict.keys():
-            yield 'In Progress', branch
-
             url = f'{base_url}/commits?{since_param}per_page=100&sha={branch_dict[branch]}'
+            yield 'In Progress', f'Importing GitHub commit data for branch {branch} from repository {repo_name}...'
 
             pagesRemaining = True
-            commits = []
             next_url = url
 
             while pagesRemaining:
                 res = self._make_api_call(header=auth_header, url=next_url)
-                pattern = r'task[^a-zA-Z\d\s]?\d+'
-
-                for commit_entry in res.json():
-                    id = commit_entry['sha']    # Used for identifying and filtering commits
-                    if id not in commit_ids:
-                        url = commit_entry['html_url']
-                        commit_obj = commit_entry["commit"]
-                        committer = self._get_commit_author(contributors, commit_entry) # Author Details used to assign the commit
-                        commit_msg = commit_obj['message']  # Commit date and title
-                        match = re.search(pattern, commit_msg, re.IGNORECASE)
-                        task_num = int(re.search(r'\d+', match.group()).group()) if match else None
-                    
-                        # Takes the commit timezone (UTC) and converts to AZ timezone
-                        utc_dt = pd.to_datetime(commit_obj['committer']['date'], format='%Y-%m-%dT%H:%M:%SZ', utc=True)
-                        az_dt = utc_dt.astimezone(pytz.timezone('US/Arizona'))
-                        
-                        commits.append({
-                            "id": id,
-                            "repo_name": repo,
-                            "host_site": "GitHub",
-                            "task_num": task_num,
-                            "committer": committer,
-                            "az_date": az_dt.strftime('%m/%d/%Y'),
-                            "utc_datetime": utc_dt,
-                            "commit_message": commit_msg,
-                            "commit_url": url
-                        })
+                for item in res.json():
+                    if item['sha'] not in commit_ids:
+                        commit_ids.append(item['sha'])
+                        commits_json.append(item)
 
                 try:
                     next_url = res.links.get('next').get('url')
                 except:
                     pagesRemaining = False
-            
-            branch_commits = pd.json_normalize(commits)
 
-            if branch_commits is not None and len(branch_commits) > 0:
-                if all_data is None or len(all_data) < 1:
-                    all_data = branch_commits
-                else:
-                    all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset='id', keep='first')
+        commit_cnt = len(commits_json)
+        curr_num = 1
+
+        pattern = r'task[^a-zA-Z\d\s]?\d+'
+        for commit_entry in commits_json:
+            yield 'In Progress', f'Processing GitHub commit data (Commit {curr_num} of {commit_cnt})...'
+            curr_num += 1
+
+            id = commit_entry['sha']    # Used for identifying and filtering commits
+            url = commit_entry['html_url']
+            commit_obj = commit_entry["commit"]
+            committer = self._get_commit_author(contributors, commit_entry) # Author Details used to assign the commit
+            commit_msg = commit_obj['message']  # Commit date and title
+            match = re.search(pattern, commit_msg, re.IGNORECASE)
+            task_num = int(re.search(r'\d+', match.group()).group()) if match else None
+        
+            # Takes the commit timezone (UTC) and converts to AZ timezone
+            utc_dt = pd.to_datetime(commit_obj['committer']['date'], format='%Y-%m-%dT%H:%M:%SZ', utc=True)
+            az_dt = utc_dt.astimezone(pytz.timezone('US/Arizona'))
+            
+            commits.append({
+                "id": id,
+                "repo_name": repo_name,
+                "host_site": "GitHub",
+                "task_num": task_num,
+                "committer": committer,
+                "az_date": az_dt.strftime('%m/%d/%Y'),
+                "utc_datetime": utc_dt,
+                "commit_message": commit_msg,
+                "commit_url": url
+            })
+
+        all_data = pd.json_normalize(commits)
+            
+        # branch_commits = pd.json_normalize(commits)
+
+        # if branch_commits is not None and len(branch_commits) > 0:
+        #     if all_data is None or len(all_data) < 1:
+        #         all_data = branch_commits
+        #     else:
+        #         all_data = pd.concat([all_data, branch_commits]).drop_duplicates(subset='id', keep='first')
                     
-        yield 'Complete', self._format_commit_data(all_data)
+        yield 'Complete', [f'Completed importing GitHub commit data from repository {repo_name}...', all_data]

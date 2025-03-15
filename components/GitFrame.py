@@ -66,9 +66,9 @@ class ConfigFrame(ttk.Frame):
         try:
             for res, args in self.dc.import_commit_data():
                 if res == 'In Progress':
-                    self.message_strval.set(f'[{args[0]}] Importing data from branch {args[2]} of repository {args[1]}...')
+                    self.message_strval.set(args)
                 else:
-                    self.message_strval.set(f'[{args[0]}] Completed importing data from repository {args[1]}...')
+                    self.message_strval.set(args)
 
             self.parent_frame.setup_dataframe()
             self.message_strval.set('Completed Data Import')
@@ -90,8 +90,10 @@ class ConfigFrame(ttk.Frame):
 
             if api_ready:
                 self.link_repos_btn['state'] = 'normal'
+                self.refresh_repos_btn['state'] = 'normal'
             else:
                 self.link_repos_btn['state'] = 'disabled'
+                self.refresh_repos_btn['state'] = 'disabled'
 
             if api_ready and repos_linked:
                 self.import_commit_data_btn['state'] = 'normal'
@@ -104,8 +106,10 @@ class ConfigFrame(ttk.Frame):
 
             if api_ready:
                 self.link_repos_btn['state'] = 'normal'
+                self.refresh_repos_btn['state'] = 'normal'
             else:
                 self.link_repos_btn['state'] = 'disabled'
+                self.refresh_repos_btn['state'] = 'disabled'
 
             if api_ready and repos_linked:
                 self.import_commit_data_btn['state'] = 'normal'
@@ -122,13 +126,14 @@ class ConfigFrame(ttk.Frame):
         def disable_ui():
             self.ui_disabled = True
             self.import_commit_data_btn['state'] = 'disabled'
+            self.refresh_repos_btn['state'] = 'disabled'
             self.link_repos_btn['state'] = 'disabled'
             self.add_acct_btn['state'] = 'disabled'
 
         def enable_ui():
             self.ui_disabled = False
             self.add_acct_btn['state'] = 'normal'
-            update_ui_btns()
+            update_ui_state()
 
         def build_details_panel():
             def wait_for_repos(nickname):
@@ -428,18 +433,35 @@ class ConfigFrame(ttk.Frame):
                         except Exception as e:
                             print(f'EXCEPTION - {e}')
 
-            def init_values():
-                for acct in self.dc.get_git_accts():
-                    accts_tview_table.insert("", 'end', values=acct)
-
-                if not self.dc.repos_available():
-                    self.dc.pull_all_repos()
+            def populate_repo_treeview():
+                items = repo_tview_table.get_children()
+                for id in items:
+                    try:
+                        repo_tview_table.delete(id)
+                    except Exception as e:
+                        print(f'EXCEPTION - {e}')
 
                 for repo in self.dc.get_linked_repos():
                     repo_tview_table.insert("", 'end', values=repo)
 
-            details_panel = ttk.Frame(widget_frame)
+            def refresh_avail_repos():
+                def pull_all_acct_repos():
+                    disable_ui()
+                    self.message_strval.set('Refreshing available account repo list...')
+                    self.dc.pull_all_repos()
+                    populate_repo_treeview()
+                    enable_ui()
+                threading.Thread(target=pull_all_acct_repos, daemon=True).start()
+                    
+                    
+            def init_values():
+                for acct in self.dc.get_git_accts():
+                    accts_tview_table.insert("", 'end', values=acct)
+                if not self.dc.repos_available():
+                    self.dc.pull_all_repos()
+                populate_repo_treeview()
 
+            details_panel = ttk.Frame(widget_frame)
             accts_frame = ttk.Frame(details_panel)
             accts_header_frame = ttk.Frame(accts_frame)
 
@@ -474,10 +496,12 @@ class ConfigFrame(ttk.Frame):
             header_lbl = ttk.Label(repo_header_frame, text='Linked Repos', font=('Arial', 10, 'bold'))
             self.link_repos_btn = ttk.Button(repo_header_frame, text='Link', command=link_repo_prompt, state='disabled')
             self.remove_repos_btn = ttk.Button(repo_header_frame, text='Remove', command=remove_repos, state='disabled')
-
+            self.refresh_repos_btn = ttk.Button(repo_header_frame, text='⟲', width=3, command=refresh_avail_repos, state='disabled')
+            
             header_lbl.grid(row=0, column=0, padx=(0, 5))
-            self.link_repos_btn.grid(row=0, column=1, padx=2)
-            self.remove_repos_btn.grid(row=0, column=2, padx=2)
+            self.refresh_repos_btn.grid(row=0, column=1, padx=2)
+            self.link_repos_btn.grid(row=0, column=2, padx=2)
+            self.remove_repos_btn.grid(row=0, column=3, padx=2)
             repo_header_frame.pack(pady=1, anchor='w')
 
             repo_tview_table = ttk.Treeview(repo_frame, selectmode='none', height=5)
@@ -557,18 +581,6 @@ class DataFrame(ttk.Frame):
     def get_commit_data(self) -> pd.DataFrame:
         return self.curr_commits_df.copy(deep=True)
     
-    def update_task_dropdown_opts(self):
-        if self.commits_table_sheet is not None:
-            self.update_taiga_tasks()
-            options = ['Not Set'] + self.task_list
-            self.commits_table_sheet.create_dropdown(r='all', c=1, values=options)
-            for row, val in enumerate(self.curr_commits_df['task_num']):
-                if pd.notna(val):
-                    value = f'{val}'
-                else:
-                    value = 'Not Set'
-                self.commits_table_sheet.set_cell_data(row, 1, value)
-    
     def handle_data_to_tables(self):
         self.import_data_to_tables()
 
@@ -577,9 +589,23 @@ class DataFrame(ttk.Frame):
         else:
             self.update_sheets()
 
+    def build_dropdowns(self, df=None):
+        if df is None:
+            df = self.curr_commits_df
+
+        options = ['Not Set'] + self.task_list
+        self.commits_table_sheet.create_dropdown('all', 1, values=options)
+        for row, value in enumerate(df['task_num']):
+            if pd.notna(value):
+                value = f'{value}'
+            else:
+                value = 'Not Set'
+            self.commits_table_sheet.set_cell_data(row, 1, value)
+
     def update_sheets(self):
         df_to_display = self.curr_commits_df[['az_date', 'task_num', 'committer', 'repo_name', 'commit_message']]
         self.commits_table_sheet.set_data(data=self.commits_df_to_table_format(df_to_display).values.tolist(), redraw=True)
+        self.build_dropdowns()
 
     def save_data(self):
         self.dc.update_commit_df(self.curr_commits_df)
@@ -802,11 +828,7 @@ class DataFrame(ttk.Frame):
                 cols = len(df.columns)
 
                 self.commits_table_sheet = tks.Sheet(table_frame, data=df.values.tolist(), header=df.columns.tolist())
-
-                options = ['Not Set'] + self.task_list
-                self.commits_table_sheet.create_dropdown(r='all', c=1, values=options)
-
-                self.update_task_dropdown_opts()
+                self.build_dropdowns(df)
 
                 column_widths = []
                 index = 0
