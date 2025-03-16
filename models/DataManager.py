@@ -344,7 +344,6 @@ class DataController:
         try:
             response = requests.post(url, json=data)
             if response.status_code == 200:
-                self.clear_taiga_projects()
                 auth_token = response.json().get("auth_token")
                 self.ts.update_user_credentials(username, password, auth_token)
                 self._update_user_credentials('Taiga', username, password, auth_token)
