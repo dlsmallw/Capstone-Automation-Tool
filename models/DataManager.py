@@ -71,10 +71,13 @@ class DataController:
             projects = self.db.table_to_df('taiga_projects')
             if projects is not None and len(projects) > 0:
                 self.taiga_projects_df = projects
-                row = projects.loc[projects['is_selected'] == 1].values[0]
+                try:
+                    row = projects.loc[projects['is_selected'] == 1].values[0]
 
-                if len(row) > 0:
-                    self._set_linked_taiga_project(row[0], row[1], row[2], row[3])
+                    if len(row) > 0:
+                        self._set_linked_taiga_project(row[0], row[1], row[2], row[3])
+                except:
+                    pass
 
         def load_saved_taiga_data():
             self._update_sprints_df(self.db.table_to_df('sprints'))
@@ -170,7 +173,11 @@ class DataController:
             if sc >= 200 and sc <= 200:
                 return 'Success', res.json()[login_key]
             else:
-                return 'Error', f'{sc} - [{hc.responses[sc]}]'
+                if sc == 401:
+                    err_msg = f'Invalid credentials (401 - Unauthorized)'
+                else:
+                    err_msg = f'{sc} - [{hc.responses[sc]}]'
+                return 'Error', err_msg
         except Exception as e:
             return 'Error', f'Exception - {e}'
 
@@ -297,8 +304,12 @@ class DataController:
     def get_available_projects(self):
         projects = []
         
-        for _, row in self.taiga_projects_df.iterrows():
-            projects.append(row['project_name'])
+        try:
+            for _, row in self.taiga_projects_df.iterrows():
+                projects.append(row['project_name'])
+        except:
+            pass
+
         return projects
     
     def get_linked_taiga_project(self):
@@ -333,13 +344,15 @@ class DataController:
         try:
             response = requests.post(url, json=data)
             if response.status_code == 200:
+                self.clear_taiga_projects()
                 auth_token = response.json().get("auth_token")
                 self.ts.update_user_credentials(username, password, auth_token)
                 self._update_user_credentials('Taiga', username, password, auth_token)
 
                 return "Success", f"Login successful! Token: {auth_token}"
             else:
-                return "Error", f"Login failed: {response.json().get('non_field_errors', 'Unknown error')}"
+                reason = response.json()
+                return "Error", f"Login failed: {reason['detail']} ({reason['code']})"
         except Exception as e:
             return "Error", f"An error occurred: {e}"
 
@@ -398,16 +411,18 @@ class DataController:
             = self.tasks_df = None
         self.taiga_data_available = False
 
-    def clear_taiga_link(self):
-        self.clear_taiga_data()
+    def clear_taiga_projects(self):
         self.db.clear_table('taiga_projects')
-        self._update_taiga_credentials()
-        self.update_taiga_csv_urls()
-        self.ts.clear_linked_data()
-
         self.taiga_projects_df = self.sel_pid = self.sel_project_name \
             = self.sel_project_owner = None
         self.project_selected = False
+
+    def clear_taiga_link(self):
+        self.clear_taiga_data()
+        self.clear_taiga_projects()
+        self._update_taiga_credentials()
+        self.update_taiga_csv_urls()
+        self.ts.clear_linked_data()
     
     #### Git
     ####===========================================================================

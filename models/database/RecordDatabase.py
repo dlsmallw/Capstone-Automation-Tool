@@ -305,5 +305,6 @@ class RecDB:
     def decrypt(self, items: tuple[str | None]):
         results = []
         for item in items:
-            results.append(base64.b64decode(item).decode('utf-8') if item is not None and item != '' else None)
+            if pd.notna(item) and item != 'NULL':
+                results.append(base64.b64decode(item).decode('utf-8') if item is not None and item != '' else None)
         return tuple(results)

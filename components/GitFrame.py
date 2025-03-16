@@ -39,7 +39,8 @@ class GitFrame(ttk.Frame):
         return self.data_frame.get_commit_data()
     
     def update_to_taiga_data(self):
-        self.data_frame.update_task_dropdown_opts()
+        if self.commit_data_ready():
+            self.data_frame.update_task_dropdown_opts()
 
     def get_root_center_coords(self):
         return self.root.get_root_coords()
@@ -84,22 +85,6 @@ class ConfigFrame(ttk.Frame):
         return target_obj
 
     def _build_config_frame(self, parent_frame) -> ttk.Frame:
-        def update_ui_btns():
-            api_ready = self.dc.api_call_ready()
-            repos_linked = self.dc.repos_linked()
-
-            if api_ready:
-                self.link_repos_btn['state'] = 'normal'
-                self.refresh_repos_btn['state'] = 'normal'
-            else:
-                self.link_repos_btn['state'] = 'disabled'
-                self.refresh_repos_btn['state'] = 'disabled'
-
-            if api_ready and repos_linked:
-                self.import_commit_data_btn['state'] = 'normal'
-            else:
-                self.import_commit_data_btn['state'] = 'disabled'
-
         def update_ui_state():
             api_ready = self.dc.api_call_ready()
             repos_linked = self.dc.repos_linked()

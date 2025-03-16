@@ -76,16 +76,20 @@ class ConfigFrame(ttk.Frame):
 
         try:
             result, msg = self.dc.taiga_import_by_api()
-            if result == 'Success':
-                self.parent_frame.setup_dataframe()
-                self.parent_frame.update_to_taiga_data()
-            else:
-                messagebox.showerror(result, msg)
         except:
             messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
-        finally:
-            temp_lbl.destroy()
-            self.import_in_progress = False
+
+        if result == 'Success':
+            self.parent_frame.setup_dataframe()
+            try:
+                self.parent_frame.update_to_taiga_data()
+            except Exception as e:
+                print(f'ERROR - {e}')
+        else:
+            messagebox.showerror(result, msg)
+        
+        temp_lbl.destroy()
+        self.import_in_progress = False
 
     def import_by_csv_urls(self, us_url, task_url):
         temp_lbl = ttk.Label(self, text='Handling Taiga CSV URL Import Call, Please Wait...')
@@ -93,17 +97,20 @@ class ConfigFrame(ttk.Frame):
 
         try:
             result, msg = self.dc.taiga_import_by_urls(us_url, task_url)
-
-            if result == 'Success':
-                self.parent_frame.setup_dataframe()
-                self.parent_frame.update_to_taiga_data()
-            else:
-                messagebox.showerror(result, msg)
         except:
-            messagebox.showerror('ERROR', 'Failed to import Taiga data by csv URLs')
-        finally:
-            temp_lbl.destroy()
-            self.import_in_progress = False
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
+
+        if result == 'Success':
+            self.parent_frame.setup_dataframe()
+            try:
+                self.parent_frame.update_to_taiga_data()
+            except Exception as e:
+                print(f'ERROR - {e}')
+        else:
+            messagebox.showerror(result, msg)
+        
+        temp_lbl.destroy()
+        self.import_in_progress = False
 
     def import_by_files(self, us_fp, task_fp):
         temp_lbl = ttk.Label(self, text='Handling Taiga File Import Call, Please Wait...')
@@ -111,17 +118,20 @@ class ConfigFrame(ttk.Frame):
 
         try:
             result, msg = self.dc.taiga_import_by_files(us_fp, task_fp)
-
-            if result == 'Success':
-                self.parent_frame.setup_dataframe()
-                self.parent_frame.update_to_taiga_data()
-            else:
-                messagebox.showerror(result, msg)
         except:
-            messagebox.showerror('ERROR', 'Failed to import Taiga data by file')
-        finally:
-            temp_lbl.destroy()
-            self.import_in_progress = False
+            messagebox.showerror('ERROR', 'Failed to import Taiga data by API')
+
+        if result == 'Success':
+            self.parent_frame.setup_dataframe()
+            try:
+                self.parent_frame.update_to_taiga_data()
+            except Exception as e:
+                print(f'ERROR - {e}')
+        else:
+            messagebox.showerror(result, msg)
+        
+        temp_lbl.destroy()
+        self.import_in_progress = False
 
     def disable_ui(self):
         self.link_acct_btn['state'] = 'disabled'
@@ -161,7 +171,12 @@ class ConfigFrame(ttk.Frame):
                 prompt_window.wm_protocol("WM_DELETE_WINDOW", close_prompt)
                 prompt_window.grab_set()
 
-                curr_uname, curr_pwd = self.dc.load_taiga_credentials()
+                results = self.dc.load_taiga_credentials()
+                if len(results) > 1:
+                    curr_uname = results[0]
+                    curr_pwd = results[1]
+                else:
+                    curr_uname = curr_pwd = None
 
                 # Function to authenticate with Taiga API
                 def authenticate_with_taiga():
@@ -170,6 +185,9 @@ class ConfigFrame(ttk.Frame):
 
                     result, msg = self.dc.authenticate_with_taiga(username, password)
                     if result == 'Success':
+                        if curr_uname is not None and username.lower() != curr_uname.lower():
+                            self.dc.clear_taiga_data()
+
                         auth_not_linked_ui_config(username)
                         th1 = threading.Thread(target=wait_for_projects, daemon=True)
                         th1.start()
@@ -250,7 +268,12 @@ class ConfigFrame(ttk.Frame):
 
         def initialize_fields():
             default_ui_config()
-            username, password = self.dc.load_taiga_credentials()
+            results = self.dc.load_taiga_credentials()
+            if len(results) > 1:
+                username = results[0]
+                password = results[1]
+            else:
+                username = password = None
             if username and password:
                 threading.Thread(target=lambda: authenticate_with_credentials(username, password), daemon=True).start()
 
@@ -316,15 +339,13 @@ class ConfigFrame(ttk.Frame):
                 update_message_field(msg)
 
         def wait_for_projects():
+            self.project_link_btn['state'] = 'disabled'
             self.dc.wait_for_projects()
             if self.dc.get_num_projects() > 0:
                 update_message_field('Account Linked - Project List Ready to Select From...')
                 self.project_link_btn['state'] = 'normal'
             else:
-                project = self.dc.get_available_projects()[0]
-                self.project_set = True
-                self.dc.select_taiga_project(project)
-                auth_and_linked_ui_config(project)
+                update_message_field('Account Authenticated - Account has no linkable projects...')
 
         ## Frame Building logic
         ##====================================================================================================================================================

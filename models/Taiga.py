@@ -77,28 +77,25 @@ class TaigaDataServicer:
                 self.user_id = res.json().get("id")
 
     def get_watched_projects(self):
+        projects_data = []
         if self.user_id and self.token_set_and_verified:
             url = f'{self.base_url}/users/{self.user_id}/watched'
             res = self._make_get_api_req(url, self._api_token_header())
             if res.status_code == 200:
-                projects_data = []
                 project_ids = []
                 for project in res.json():
-                    if project.get("type") == 'project':
-                        p_id = project.get("id")
-                        p_slug = project.get("slug")
-                        p_owner = p_slug.split("-")[0]
-                        p_name = project.get('name')
-                    else:
-                        try:
+                    try:
+                        if project.get("type") == 'project':
+                            p_id = project.get("id")
+                            p_slug = project.get("slug")
+                            p_owner = p_slug.split("-")[0]
+                            p_name = project.get('name')
+                        else:
                             p_id = project.get("project")
                             p_slug = project.get("project_slug")
-                            p_owner, p_name = p_slug.split("-")
-                        except Exception as e:
-                            print(e)
-
-                    if p_id and p_name and p_owner:
-                        if p_id not in project_ids:
+                            p_owner = p_slug.split("-")[0]
+                            p_name = project.get('project_name')
+                        if p_id and p_name and p_owner and p_id not in project_ids:
                             p_data = {
                                 'id': p_id,
                                 'project_name': p_name,
@@ -108,6 +105,8 @@ class TaigaDataServicer:
                             }
                             projects_data.append(p_data)
                             project_ids.append(p_id)
+                    except Exception as e:
+                        print(f'ERROR - {e}')
         else:
             pass
         return pd.DataFrame(data=projects_data, columns=['id', 'project_name', 'project_owner', 'project_slug', 'is_selected'])
